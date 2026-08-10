@@ -35,6 +35,9 @@ func Root() *cli.Command {
 			addCmd(),
 			infoCmd(),
 			lsCmd(),
+			downloadCmd(),
+			exportCmd(),
+			streamURLCmd(),
 			configCmd(),
 		},
 	}

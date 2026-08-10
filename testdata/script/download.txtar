@@ -1,0 +1,53 @@
+# Download UX against the rest-api dialect fake: /dl serves an 18-byte
+# payload of three lines.
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL
+
+# download one file by listing id into a directory
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
+cmp out/Sintel.mkv full.bin
+
+# an already complete file is not re-downloaded
+webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
+stderr 'already complete'
+
+# a partial file resumes from its size and ends byte-identical
+cp partial.bin part/Sintel.mkv
+webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o part/
+stderr 'resuming at'
+cmp part/Sintel.mkv full.bin
+
+# by numeric index, streaming to stdout
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 0 --stdout
+stdout 'line3'
+
+# by path inside the torrent
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 /Sintel/Sintel.mkv -o bypath/
+cmp bypath/Sintel.mkv full.bin
+
+# JSON report
+rm out/Sintel.mkv
+webtor --json download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
+stdout '"bytes": 18'
+
+# export: table of URLs plus the cache hint
+webtor export 08ada5a7a6183aae1e09d831df6748d566095a10 aaa
+stdout 'download'
+stdout '/dl/aaa'
+stderr 'content is cached'
+
+# stream-url prints exactly the HLS URL
+webtor stream-url 08ada5a7a6183aae1e09d831df6748d566095a10 aaa
+stdout '/hls/index.m3u8'
+
+# unknown content
+! webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 nope
+stderr 'no file or directory'
+
+-- part/keep.txt --
+placeholder so the directory exists
+-- partial.bin --
+line1
+-- full.bin --
+line1
+line2
+line3

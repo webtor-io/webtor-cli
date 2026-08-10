@@ -16,7 +16,10 @@ import (
 const (
 	SintelID  = "08ada5a7a6183aae1e09d831df6748d566095a10"
 	ValidKey  = "99999999-8888-7777-6666-555555555555"
-	FileBytes = "0123456789abcdef0123456789abcdef" // /dl payload
+	// FileBytes is the /dl payload. Newline-terminated lines so testscript
+	// txtar files (which always end with a newline) can hold exact prefixes
+	// of it for resume tests.
+	FileBytes = "line1\nline2\nline3\n"
 )
 
 type Server struct {
