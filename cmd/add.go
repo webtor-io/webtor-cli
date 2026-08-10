@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -56,9 +57,9 @@ func resolveSource(cmd *cli.Command) (webtor.ResourceSource, error) {
 	case arg == "" || arg == "-":
 		if arg == "" && render.IsTTY(os.Stdin) {
 			return webtor.ResourceSource{}, exitcode.Usagef(
-				"nothing to add: pass a magnet link, an infohash, a .torrent file, or pipe a .torrent to stdin")
+				"nothing to add: pass a magnet link, an infohash, a .torrent file, or pipe one to stdin")
 		}
-		return webtor.TorrentReader(os.Stdin), nil
+		return sniffStdin(os.Stdin)
 	case magnetOrHashRe.MatchString(arg):
 		return webtor.Magnet(arg), nil
 	default:
@@ -68,6 +69,23 @@ func resolveSource(cmd *cli.Command) (webtor.ResourceSource, error) {
 		}
 		return webtor.TorrentBytes(b), nil
 	}
+}
+
+// sniffStdin reads the piped payload and tells a magnet link (or bare
+// infohash) from raw .torrent bytes, so `echo "magnet:..." | webtor add`
+// works the same as piping a file. Text payloads are trimmed — a trailing
+// newline from echo must not reach the magnet parser.
+func sniffStdin(r io.Reader) (webtor.ResourceSource, error) {
+	b, err := io.ReadAll(io.LimitReader(r, webtor.MaxTorrentSize+1))
+	if err != nil {
+		return webtor.ResourceSource{}, err
+	}
+	if len(b) < 4096 {
+		if s := strings.TrimSpace(string(b)); magnetOrHashRe.MatchString(s) {
+			return webtor.Magnet(s), nil
+		}
+	}
+	return webtor.TorrentBytes(b), nil
 }
 
 func printResource(res *webtor.ResourceResponse) {

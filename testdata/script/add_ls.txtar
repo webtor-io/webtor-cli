@@ -11,6 +11,16 @@ stdout 'Sintel'
 webtor --json add magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10
 stdout '"files_count": 2'
 
+# add: magnet piped to stdin (echo-style trailing newline included)
+stdin magnet.txt
+webtor add
+stdout '08ada5a7a6183aae1e09d831df6748d566095a10'
+
+# add: bare infohash piped to stdin
+stdin hash.txt
+webtor add
+stdout 'Sintel'
+
 # add: nothing to add (empty stdin)
 ! webtor add
 stderr 'empty torrent body'
@@ -43,3 +53,7 @@ stderr 'missing <resource-id>'
 
 -- sintel.torrent --
 d8:announce0:e
+-- magnet.txt --
+magnet:?xt=urn:btih:08ADA5A7A6183AAE1E09D831DF6748D566095A10&dn=Sintel
+-- hash.txt --
+08ada5a7a6183aae1e09d831df6748d566095a10
