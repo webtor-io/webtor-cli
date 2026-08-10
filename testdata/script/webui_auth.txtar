@@ -1,0 +1,46 @@
+# First-run wizard with device-flow login against the web-ui dialect,
+# then logout / login / status round-trips.
+env WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_NO_BROWSER=1
+
+# wizard: backend 1 (webtor.io), method 1 (device flow)
+stdin wizard.txt
+webtor config init
+stderr 'one-time code: F7KQ-29XD'
+stderr 'Device authorized'
+
+# the key was persisted into credentials.yaml (0600)
+grep '99999999-8888-7777-6666-555555555555' .config/webtor/credentials.yaml
+
+# the wizard captured the base URL into the context
+grep 'base_url' .config/webtor/config.yaml
+
+# status shows the account (profile probe over the stored key)
+webtor auth status
+stdout 'user@example.com'
+stdout 'Pro'
+
+# logout removes the key
+webtor auth logout
+stderr 'Key removed'
+! grep '99999999-8888-7777-6666-555555555555' .config/webtor/credentials.yaml
+
+# login again via device flow, with the paid-plan probe message
+webtor auth login --no-browser
+stderr 'Logged in as user@example.com'
+
+# machine-readable status
+webtor --json auth status
+stdout '"tier": "Pro"'
+
+# resource surface works through the webui dialect too
+webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
+stdout 'Sintel.mkv'
+
+# config show masks the key
+webtor config show
+stdout '9999…5555'
+! stdout '99999999-8888-7777-6666-555555555555'
+
+-- wizard.txt --
+1
+1

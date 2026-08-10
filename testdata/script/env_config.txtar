@@ -1,0 +1,21 @@
+# Config-less CI mode: WEBTOR_* env vars only, no files.
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+
+webtor info 08ada5a7a6183aae1e09d831df6748d566095a10
+stdout 'Sintel'
+
+# a wrong key is an auth failure with the login hint
+env WEBTOR_API_KEY=00000000-0000-0000-0000-000000000000
+! webtor info 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'unauthorized'
+stderr 'auth login'
+
+# no config and no env backend → usage error pointing at config init
+env WEBTOR_BACKEND= WEBTOR_API_KEY=
+! webtor info 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'config init'
+
+# auth login refuses to manage keys of a non-webui context
+env WEBTOR_BACKEND=direct
+! webtor auth login
+stderr 'webtor.io account keys'

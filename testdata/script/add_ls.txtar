@@ -1,0 +1,45 @@
+# The universal resource surface against the plain rest-api dialect.
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL
+
+# add: .torrent piped to stdin
+stdin sintel.torrent
+webtor add
+stdout '08ada5a7a6183aae1e09d831df6748d566095a10'
+stdout 'Sintel'
+
+# add: magnet as argument, JSON output
+webtor --json add magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10
+stdout '"files_count": 2'
+
+# add: nothing to add (empty stdin)
+! webtor add
+stderr 'empty torrent body'
+
+# info: uppercase infohash is normalized
+webtor info 08ADA5A7A6183AAE1E09D831DF6748D566095A10
+stdout 'Sintel'
+
+# ls: human table
+webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
+stdout 'Sintel.mkv'
+stdout '734.0 MB'
+stdout 'poster.jpg'
+
+# ls: JSON
+webtor --json ls 08ada5a7a6183aae1e09d831df6748d566095a10
+stdout '"items_count": 2'
+
+# ls: magnet accepted where an id is expected
+webtor ls 'magnet:?xt=urn:btih:08ADA5A7A6183AAE1E09D831DF6748D566095A10&dn=Sintel'
+stdout 'Sintel.mkv'
+
+# not found → exit code 5 and the not_found code on stderr
+! webtor info 1111111111111111111111111111111111111111
+stderr 'not_found'
+
+# usage error → missing argument
+! webtor info
+stderr 'missing <resource-id>'
+
+-- sintel.torrent --
+d8:announce0:e
