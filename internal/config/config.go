@@ -115,6 +115,9 @@ type Resolved struct {
 	Name    string
 	Context Context
 	Creds   ContextCredentials
+	// FromEnv marks the config-less WEBTOR_BACKEND mode: nothing is stored
+	// on disk for this configuration.
+	FromEnv bool
 }
 
 // Resolve picks the runtime configuration: when WEBTOR_BACKEND is set, the
@@ -125,6 +128,7 @@ func Resolve(contextFlag string) (*Resolved, error) {
 	if b := os.Getenv("WEBTOR_BACKEND"); b != "" {
 		r := &Resolved{
 			Name:    "env",
+			FromEnv: true,
 			Context: Context{Backend: BackendName(b), BaseURL: os.Getenv("WEBTOR_BASE_URL")},
 			Creds: ContextCredentials{
 				APIKey: os.Getenv("WEBTOR_API_KEY"),

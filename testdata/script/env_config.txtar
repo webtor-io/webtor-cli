@@ -19,3 +19,8 @@ stderr 'config init'
 env WEBTOR_BACKEND=direct
 ! webtor auth login
 stderr 'WEBTOR_API_KEY instead'
+
+# and so does auth logout — nothing is stored to remove
+! webtor auth logout
+stderr 'unset WEBTOR_API_KEY'
+! exists .config/webtor/credentials.yaml

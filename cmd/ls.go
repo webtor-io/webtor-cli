@@ -24,7 +24,7 @@ func lsCmd() *cli.Command {
 			&cli.StringFlag{Name: "sort", Usage: "sort order: name or size (default: torrent order)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			raw, rest, err := resourceAndRest(cmd)
+			raw, rest, err := resourceAndRest(cmd, true)
 			if err != nil {
 				return err
 			}

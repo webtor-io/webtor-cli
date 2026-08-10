@@ -42,7 +42,28 @@ stdin hash.txt
 webtor ls
 stdout 'Sintel.mkv'
 
+# garbage on stdin is a usage error, not a mangled API call
+stdin garbage.txt
+! webtor ls
+stderr 'does not look like an infohash or magnet'
+
+# a multi-line feed is rejected — one id per invocation
+stdin multiline.txt
+! webtor play --player true
+stderr 'more than one line'
+
+# a single-argument command never drains a stray pipe: the malformed arg
+# goes to the API (404), stdin's valid hash stays untouched
+stdin hash.txt
+! webtor info zzzz
+stderr 'not_found'
+
 -- hash.txt --
 08ADA5A7A6183AAE1E09D831DF6748D566095A10
 -- magnet.txt --
 magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel
+-- garbage.txt --
+this is not a torrent id at all
+-- multiline.txt --
+08ada5a7a6183aae1e09d831df6748d566095a10
+08ada5a7a6183aae1e09d831df6748d566095a10

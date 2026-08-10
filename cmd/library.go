@@ -61,7 +61,7 @@ func libraryCmd() *cli.Command {
 				Usage:     "add a stored resource to the library",
 				ArgsUsage: "<resource-id>",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					rid, err := resourceIDArg(cmd, 0)
+					rid, err := resourceIDArg(cmd)
 					if err != nil {
 						return err
 					}
@@ -85,7 +85,7 @@ func libraryCmd() *cli.Command {
 				Usage:     "remove a resource from the library",
 				ArgsUsage: "<resource-id>",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					rid, err := resourceIDArg(cmd, 0)
+					rid, err := resourceIDArg(cmd)
 					if err != nil {
 						return err
 					}
@@ -105,14 +105,15 @@ func libraryCmd() *cli.Command {
 				Usage:     "rename a library entry (also in WebDAV and S3 views)",
 				ArgsUsage: "<resource-id> <name>",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					rid, err := resourceIDArg(cmd, 0)
+					raw, rest, err := resourceAndRest(cmd, true)
 					if err != nil {
 						return err
 					}
-					name := cmd.Args().Get(1)
-					if name == "" {
-						return exitcode.Usagef("missing <name> argument")
+					rid := extractResourceID(raw)
+					if len(rest) != 1 {
+						return exitcode.Usagef("usage: library rename <resource-id> <name> (the id may come from stdin)")
 					}
+					name := rest[0]
 					c, _, err := newClient(ctx, cmd)
 					if err != nil {
 						return err

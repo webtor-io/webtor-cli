@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,7 @@ func playCmd() *cli.Command {
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			// One stdin read serves both: the id for lookup and, when the
 			// payload is a full magnet, the add-on-miss fallback below.
-			arg, rest, err := resourceAndRest(cmd)
+			arg, rest, err := resourceAndRest(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -42,7 +43,7 @@ func playCmd() *cli.Command {
 
 			res, err := c.Resource(ctx, rid)
 			if webtor.IsNotFound(err) && strings.HasPrefix(arg, "magnet:") {
-				if !cmd.Bool("quiet") {
+				if !cmd.Bool("quiet") && !cmd.Bool("json") {
 					_, _ = fmt.Fprintln(os.Stderr, "not stored yet — adding the magnet first (a cold one can take a few minutes)…")
 				}
 				res, err = c.AddResource(ctx, webtor.Magnet(arg))
@@ -55,25 +56,21 @@ func playCmd() *cli.Command {
 			if len(rest) > 0 {
 				contentArg = rest[0]
 			}
-			item, err := pickPlayable(ctx, c, res, contentArg)
+			item, resp, err := pickPlayable(ctx, c, res, contentArg)
 			if err != nil {
 				return err
 			}
-			resp, err := c.Export(ctx, res.ID, item.ID, webtor.ExportOptions{
-				Types: []webtor.ExportType{webtor.ExportTypeDownload},
-			})
+			u, err := downloadURLFor(ctx, c, rid, item, resp)
 			if err != nil {
 				return err
-			}
-			u, ok := resp.DownloadURL()
-			if !ok {
-				return &webtor.Error{HTTPStatus: 404, Code: webtor.CodeNotFound,
-					Message: fmt.Sprintf("no download export for %q", item.Path)}
 			}
 
 			player := cmd.String("player")
 			if err := launchPlayer(player, u); err != nil {
-				return exitcode.Usagef("cannot launch %s: %v — install it or pass --player", player, err)
+				if errors.Is(err, exec.ErrNotFound) {
+					return exitcode.Usagef("cannot launch %s: %v — install it or pass --player", player, err)
+				}
+				return fmt.Errorf("launching %s: %w", player, err)
 			}
 			if cmd.Bool("json") {
 				return render.JSON(os.Stdout, map[string]string{
@@ -88,20 +85,38 @@ func playCmd() *cli.Command {
 	}
 }
 
-// pickPlayable selects the file to play: the explicit argument, the single
-// file of a single-file torrent, or the biggest video (falling back to
-// audio) file otherwise.
-func pickPlayable(ctx context.Context, c *webtor.Client, res *webtor.ResourceResponse, arg string) (*webtor.ListItem, error) {
+func playable(f webtor.MediaFormat) bool {
+	return f == webtor.MediaFormatVideo || f == webtor.MediaFormatAudio
+}
+
+// pickPlayable selects the file to play: the explicit argument (which must
+// name a file), the single file of a single-file torrent (which must be
+// media), or the biggest video (falling back to audio) file otherwise. The
+// ExportResponse is non-nil when selection already resolved one.
+func pickPlayable(ctx context.Context, c *webtor.Client, res *webtor.ResourceResponse, arg string) (*webtor.ListItem, *webtor.ExportResponse, error) {
 	if arg != "" {
-		return resolveContent(ctx, c, res.ID, arg)
+		item, resp, err := resolveContent(ctx, c, res.ID, arg)
+		if err != nil {
+			return nil, nil, err
+		}
+		if item.Type == webtor.ListTypeDirectory {
+			return nil, nil, exitcode.Usagef("%q is a directory — pick a file (see `webtor ls %s %s`)", arg, res.ID, item.Path)
+		}
+		return item, resp, nil
 	}
 	if res.File != nil {
-		return res.File, nil
+		if !playable(res.File.MediaFormat) {
+			return nil, nil, exitcode.Usagef("%q is not a playable media file", strings.TrimPrefix(res.File.Path, "/"))
+		}
+		return res.File, nil, nil
 	}
+	// The file count is known, so the flat listing fits one request (the
+	// server caps a page at 1000).
+	limit := min(max(res.FilesCount, 1), 1000)
 	var video, audio *webtor.ListItem
-	for it, err := range c.ListAll(ctx, res.ID, webtor.ListOptions{Output: webtor.ListOutputFlat}) {
+	for it, err := range c.ListAll(ctx, res.ID, webtor.ListOptions{Output: webtor.ListOutputFlat, Limit: limit}) {
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		switch it.MediaFormat {
 		case webtor.MediaFormatVideo:
@@ -117,30 +132,34 @@ func pickPlayable(ctx context.Context, c *webtor.Client, res *webtor.ResourceRes
 		}
 	}
 	if video != nil {
-		return video, nil
+		return video, nil, nil
 	}
 	if audio != nil {
-		return audio, nil
+		return audio, nil, nil
 	}
-	return nil, exitcode.Usagef("no playable media in this torrent — pick a file explicitly (see `webtor ls %s`)", res.ID)
+	return nil, nil, exitcode.Usagef("no playable media in this torrent — pick a file explicitly (see `webtor ls %s`)", res.ID)
 }
 
 // launchPlayer starts the player detached. The command name is looked up on
 // PATH first; on macOS an app-bundle fallback (`open -a`) covers players
-// installed as .app without a CLI shim.
+// installed as .app without a CLI shim. A missing player wraps
+// exec.ErrNotFound so the caller can tell "install it" apart from a real
+// launch failure. There is deliberately no `cmd /c start` fallback on
+// Windows: cmd.exe splits the signed URL at every `&` and executes the
+// pieces — players there must be on PATH.
 func launchPlayer(player, url string) error {
 	if p, err := exec.LookPath(player); err == nil {
 		return exec.Command(p, url).Start()
 	}
 	if runtime.GOOS == "darwin" {
-		app := map[string]string{"vlc": "VLC", "mpv": "mpv", "iina": "IINA"}[strings.ToLower(player)]
+		app := map[string]string{"vlc": "VLC", "iina": "IINA"}[strings.ToLower(player)]
 		if app == "" {
 			app = player
 		}
-		return exec.Command("open", "-a", app, url).Run()
+		if err := exec.Command("open", "-a", app, url).Run(); err != nil {
+			return fmt.Errorf("no %q app bundle: %w", app, exec.ErrNotFound)
+		}
+		return nil
 	}
-	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/c", "start", "", player, url).Start()
-	}
-	return fmt.Errorf("%s not found on PATH", player)
+	return fmt.Errorf("%s: %w on PATH", player, exec.ErrNotFound)
 }

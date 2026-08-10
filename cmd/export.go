@@ -25,7 +25,7 @@ func exportCmd() *cli.Command {
 			&cli.StringFlag{Name: "imdb-id", Usage: "IMDB id to improve subtitle lookup"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			raw, rest, err := resourceAndRest(cmd)
+			raw, rest, err := resourceAndRest(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -37,7 +37,7 @@ func exportCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			item, err := resolveContent(ctx, c, rid, rest[0])
+			item, _, err := resolveContent(ctx, c, rid, rest[0])
 			if err != nil {
 				return err
 			}
@@ -78,7 +78,7 @@ func urlCmd() *cli.Command {
 		Usage:     "print a file's download URL (short-lived, use right away)",
 		ArgsUsage: "<resource-id> <content-id | path>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			raw, rest, err := resourceAndRest(cmd)
+			raw, rest, err := resourceAndRest(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -90,20 +90,13 @@ func urlCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			item, err := resolveContent(ctx, c, rid, rest[0])
+			item, resp, err := resolveContent(ctx, c, rid, rest[0])
 			if err != nil {
 				return err
 			}
-			resp, err := c.Export(ctx, rid, item.ID, webtor.ExportOptions{
-				Types: []webtor.ExportType{webtor.ExportTypeDownload},
-			})
+			u, err := downloadURLFor(ctx, c, rid, item, resp)
 			if err != nil {
 				return err
-			}
-			u, ok := resp.DownloadURL()
-			if !ok {
-				return &webtor.Error{HTTPStatus: 404, Code: webtor.CodeNotFound,
-					Message: fmt.Sprintf("no download export for %q", item.Path)}
 			}
 			if cmd.Bool("json") {
 				return render.JSON(os.Stdout, map[string]string{"url": u})

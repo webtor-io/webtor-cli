@@ -48,7 +48,7 @@ func authLoginCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			if r.Name == "env" {
+			if r.FromEnv {
 				return exitcode.Usagef("auth login stores keys into file contexts; in WEBTOR_BACKEND env mode pass the key via WEBTOR_API_KEY instead")
 			}
 			if r.Context.Backend != config.BackendWebUI {
@@ -157,6 +157,9 @@ func authLogoutCmd() *cli.Command {
 			r, err := resolveForAuth(cmd)
 			if err != nil {
 				return err
+			}
+			if r.FromEnv {
+				return exitcode.Usagef("nothing is stored in WEBTOR_BACKEND env mode — unset WEBTOR_API_KEY/WEBTOR_TOKEN instead")
 			}
 			creds := r.Creds
 			creds.APIKey = ""

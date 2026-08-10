@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -14,8 +13,6 @@ import (
 	"github.com/webtor-io/webtor-cli/internal/exitcode"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
-
-var indexRe = regexp.MustCompile(`^\d+$`)
 
 func downloadCmd() *cli.Command {
 	return &cli.Command{
@@ -31,7 +28,7 @@ func downloadCmd() *cli.Command {
 			&cli.BoolFlag{Name: "stdout", Usage: "write the payload to stdout"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			raw, args, err := resourceAndRest(cmd)
+			raw, args, err := resourceAndRest(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -66,7 +63,7 @@ func downloadCmd() *cli.Command {
 			var fileIDs []string
 			var dirPaths []string
 			for _, a := range args {
-				item, err := resolveContent(ctx, c, rid, a)
+				item, _, err := resolveContent(ctx, c, rid, a)
 				if err != nil {
 					return err
 				}
@@ -99,8 +96,11 @@ func downloadCmd() *cli.Command {
 }
 
 // resolveContent turns a CLI content argument — a listing id, a numeric file
-// index, or a path inside the torrent — into the matching item.
-func resolveContent(ctx context.Context, c *webtor.Client, rid, arg string) (*webtor.ListItem, error) {
+// index, or a path inside the torrent — into the matching item. When the
+// resolution itself required a download-type export (the direct-id branch),
+// that ExportResponse is returned too, so callers that need a URL can reuse
+// it instead of paying for a second export.
+func resolveContent(ctx context.Context, c *webtor.Client, rid, arg string) (*webtor.ListItem, *webtor.ExportResponse, error) {
 	if !strings.Contains(arg, "/") {
 		// Try it as a direct content id (listing id or numeric index): the
 		// export endpoint accepts both. Confirm existence via export of the
@@ -108,30 +108,45 @@ func resolveContent(ctx context.Context, c *webtor.Client, rid, arg string) (*we
 		resp, err := c.Export(ctx, rid, arg, webtor.ExportOptions{Types: []webtor.ExportType{webtor.ExportTypeDownload}})
 		if err == nil {
 			item := resp.Source
-			if indexRe.MatchString(arg) && item.ID != "" {
-				arg = item.ID
-			}
-			return &item, nil
+			return &item, resp, nil
 		}
 		if !webtor.IsNotFound(err) {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	// Fall back to a path lookup over the flat listing.
 	want := "/" + strings.Trim(arg, "/")
 	for it, err := range c.ListAll(ctx, rid, webtor.ListOptions{Output: webtor.ListOutputFlat}) {
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if it.Path == want || strings.TrimPrefix(it.Path, "/") == strings.TrimPrefix(want, "/") {
-			return &it, nil
+			return &it, nil, nil
 		}
 		// A directory prefix match makes the argument a directory.
 		if strings.HasPrefix(it.Path, want+"/") {
-			return &webtor.ListItem{ID: want, Path: want, Type: webtor.ListTypeDirectory}, nil
+			return &webtor.ListItem{ID: want, Path: want, Type: webtor.ListTypeDirectory}, nil, nil
 		}
 	}
-	return nil, exitcode.Usagef("no file or directory %q in this torrent (try `webtor ls %s`)", arg, rid)
+	return nil, nil, exitcode.Usagef("no file or directory %q in this torrent (try `webtor ls %s`)", arg, rid)
+}
+
+// downloadURLFor resolves item's download URL, reusing resp when the
+// resolution step already fetched one.
+func downloadURLFor(ctx context.Context, c *webtor.Client, rid string, item *webtor.ListItem, resp *webtor.ExportResponse) (string, error) {
+	if resp == nil {
+		var err error
+		resp, err = c.Export(ctx, rid, item.ID, webtor.ExportOptions{Types: []webtor.ExportType{webtor.ExportTypeDownload}})
+		if err != nil {
+			return "", err
+		}
+	}
+	u, ok := resp.DownloadURL()
+	if !ok {
+		return "", &webtor.Error{HTTPStatus: 404, Code: webtor.CodeNotFound,
+			Message: fmt.Sprintf("no download export for %q", item.Path)}
+	}
+	return u, nil
 }
 
 func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, contentID string) error {

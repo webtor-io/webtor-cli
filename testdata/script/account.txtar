@@ -10,6 +10,11 @@ stdout '08ada5a7a6183aae1e09d831df6748d566095a10'
 stdout 'Sintel'
 webtor library rename 08ada5a7a6183aae1e09d831df6748d566095a10 'Sintel (2010)'
 stderr 'renamed to Sintel \(2010\)'
+
+# rename with the id piped — the single argument is the name
+stdin hash.txt
+webtor library rename 'Sintel piped'
+stderr 'renamed to Sintel piped'
 webtor library rm 08ada5a7a6183aae1e09d831df6748d566095a10
 stderr 'removed'
 ! webtor library rm 08ada5a7a6183aae1e09d831df6748d566095a10
@@ -46,3 +51,6 @@ stderr 'not supported by the direct backend'
 stderr 'not supported'
 ! webtor profile
 stderr 'not supported'
+
+-- hash.txt --
+08ada5a7a6183aae1e09d831df6748d566095a10

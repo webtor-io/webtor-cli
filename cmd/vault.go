@@ -63,7 +63,7 @@ func vaultCmd() *cli.Command {
 					&cli.DurationFlag{Name: "poll-interval", Value: 15 * time.Second, Hidden: true},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					rid, err := resourceIDArg(cmd, 0)
+					rid, err := resourceIDArg(cmd)
 					if err != nil {
 						return err
 					}
@@ -96,7 +96,7 @@ func vaultCmd() *cli.Command {
 				Usage:     "withdraw a pledge and claim the points back",
 				ArgsUsage: "<resource-id>",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					rid, err := resourceIDArg(cmd, 0)
+					rid, err := resourceIDArg(cmd)
 					if err != nil {
 						return err
 					}
