@@ -13,7 +13,7 @@ files  11
 
 $ webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
 $ webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4
-$ webtor stream-url 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4 | xargs mpv
+$ webtor url 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4 | xargs mpv
 ```
 
 A `.torrent` can be piped straight in:
@@ -43,6 +43,9 @@ the latter 0600). Multiple named contexts are supported: `--context`,
 $ WEBTOR_BACKEND=webui WEBTOR_API_KEY=... webtor --json info <hash>
 ```
 
+The `WEBTOR_*` variables configure this config-less mode as a set — they are
+only read when `WEBTOR_BACKEND` is set, and never override file contexts.
+
 ## Commands
 
 | | |
@@ -51,7 +54,7 @@ $ WEBTOR_BACKEND=webui WEBTOR_API_KEY=... webtor --json info <hash>
 | `add` | store a magnet / infohash / `.torrent` / stdin |
 | `info`, `ls` | inspect a stored torrent (`--tree`, `--all`, `--json`) |
 | `download` | files by id/index/path with resume; directories as tar/zip; `--stdout` |
-| `export`, `stream-url` | resolve the short-lived download/HLS URLs |
+| `export`, `url` | resolve the short-lived export URLs / print the download URL |
 | `library ls/add/rm/rename` | the account library (webtor.io accounts) |
 | `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion |
 | `profile` | account profile |

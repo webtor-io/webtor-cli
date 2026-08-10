@@ -48,6 +48,9 @@ func authLoginCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
+			if r.Name == "env" {
+				return exitcode.Usagef("auth login stores keys into file contexts; in WEBTOR_BACKEND env mode pass the key via WEBTOR_API_KEY instead")
+			}
 			if r.Context.Backend != config.BackendWebUI {
 				return exitcode.Usagef(
 					"auth login manages webtor.io account keys; the %s context %q keeps its key in the config — edit it with `webtor config init`",

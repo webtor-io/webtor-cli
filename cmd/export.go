@@ -71,10 +71,10 @@ func exportCmd() *cli.Command {
 	}
 }
 
-func streamURLCmd() *cli.Command {
+func urlCmd() *cli.Command {
 	return &cli.Command{
-		Name:      "stream-url",
-		Usage:     "print a file's streaming (HLS) URL",
+		Name:      "url",
+		Usage:     "print a file's download URL (short-lived, use right away)",
 		ArgsUsage: "<resource-id> <content-id | path>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			rid, err := resourceIDArg(cmd, 0)
@@ -93,15 +93,15 @@ func streamURLCmd() *cli.Command {
 				return err
 			}
 			resp, err := c.Export(ctx, rid, item.ID, webtor.ExportOptions{
-				Types: []webtor.ExportType{webtor.ExportTypeStream},
+				Types: []webtor.ExportType{webtor.ExportTypeDownload},
 			})
 			if err != nil {
 				return err
 			}
-			u, ok := resp.StreamURL()
+			u, ok := resp.DownloadURL()
 			if !ok {
 				return &webtor.Error{HTTPStatus: 404, Code: webtor.CodeNotFound,
-					Message: fmt.Sprintf("no stream export for %q — not a streamable media file", item.Path)}
+					Message: fmt.Sprintf("no download export for %q", item.Path)}
 			}
 			if cmd.Bool("json") {
 				return render.JSON(os.Stdout, map[string]string{"url": u})

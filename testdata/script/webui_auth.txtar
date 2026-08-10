@@ -32,6 +32,13 @@ stderr 'Logged in as user@example.com'
 webtor --json auth status
 stdout '"tier": "Pro"'
 
+# a stray WEBTOR_API_KEY in the shell must NOT shadow the stored key —
+# env credentials belong to the WEBTOR_BACKEND env mode only
+env WEBTOR_API_KEY=00000000-0000-0000-0000-000000000000
+webtor auth status
+stdout 'Pro'
+env WEBTOR_API_KEY=
+
 # resource surface works through the webui dialect too
 webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
 stdout 'Sintel.mkv'

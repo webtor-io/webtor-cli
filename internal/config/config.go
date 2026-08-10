@@ -117,8 +117,10 @@ type Resolved struct {
 	Creds   ContextCredentials
 }
 
-// Resolve picks the context (flag > config current) and applies WEBTOR_* env
-// overrides. When WEBTOR_BACKEND is set, the files are not required at all.
+// Resolve picks the runtime configuration: when WEBTOR_BACKEND is set, the
+// WEBTOR_* env vars fully describe it and no files are needed (config-less CI
+// mode); otherwise the named context (flag > config current) is loaded from
+// the files, and env vars are ignored.
 func Resolve(contextFlag string) (*Resolved, error) {
 	if b := os.Getenv("WEBTOR_BACKEND"); b != "" {
 		r := &Resolved{
@@ -150,9 +152,10 @@ func Resolve(contextFlag string) (*Resolved, error) {
 	if c := creds[name]; c != nil {
 		r.Creds = *c
 	}
-	if k := os.Getenv("WEBTOR_API_KEY"); k != "" {
-		r.Creds.APIKey = k
-	}
+	// Deliberately NO WEBTOR_API_KEY override here: the env vars configure
+	// the config-less mode as a set (WEBTOR_BACKEND et al.), they do not mix
+	// into file contexts. A stray WEBTOR_API_KEY in the shell (the name is
+	// also used by unrelated webtor tooling) must not shadow the stored key.
 	return r, nil
 }
 

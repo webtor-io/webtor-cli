@@ -35,9 +35,10 @@ stdout 'download'
 stdout '/dl/aaa'
 stderr 'content is cached'
 
-# stream-url prints exactly the HLS URL
-webtor stream-url 08ada5a7a6183aae1e09d831df6748d566095a10 aaa
-stdout '/hls/index.m3u8'
+# url prints exactly the download URL
+webtor url 08ada5a7a6183aae1e09d831df6748d566095a10 aaa
+stdout '/dl/aaa'
+! stdout 'hls'
 
 # unknown content
 ! webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 nope

@@ -15,7 +15,7 @@ env WEBTOR_BACKEND= WEBTOR_API_KEY=
 ! webtor info 08ada5a7a6183aae1e09d831df6748d566095a10
 stderr 'config init'
 
-# auth login refuses to manage keys of a non-webui context
+# auth login refuses to run in config-less env mode
 env WEBTOR_BACKEND=direct
 ! webtor auth login
-stderr 'webtor.io account keys'
+stderr 'WEBTOR_API_KEY instead'
