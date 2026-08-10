@@ -1,0 +1,17 @@
+# play: pick the biggest video automatically and hand its download URL to
+# the player command. `true` stands in for VLC — the launch path is the same.
+[windows] skip 'uses /usr/bin/true as the player stub'
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL
+
+# no content argument → biggest video file (Sintel.mkv) is picked
+webtor play 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+stderr 'launched true: Sintel/Sintel.mkv'
+
+# explicit content id
+webtor --json play 08ada5a7a6183aae1e09d831df6748d566095a10 aaa --player true
+stdout '"player": "true"'
+stdout '"url"'
+
+# unknown player is a usage error with a hint
+! webtor play 08ada5a7a6183aae1e09d831df6748d566095a10 --player definitely-not-a-player
+stderr 'cannot launch definitely-not-a-player'

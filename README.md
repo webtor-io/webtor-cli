@@ -13,6 +13,7 @@ files  11
 
 $ webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
 $ webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4
+$ webtor play "magnet:?xt=urn:btih:..."          # straight into VLC
 $ webtor url 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4 | xargs mpv
 ```
 
@@ -55,6 +56,7 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `info`, `ls` | inspect a stored torrent (`--tree`, `--all`, `--json`) |
 | `download` | files by id/index/path with resume; directories as tar/zip; `--stdout` |
 | `export`, `url` | resolve the short-lived export URLs / print the download URL |
+| `play` | stream into a media player (`--player vlc` default, mpv/iina work too); picks the biggest video automatically, accepts a raw magnet |
 | `library ls/add/rm/rename` | the account library (webtor.io accounts) |
 | `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion |
 | `profile` | account profile |
