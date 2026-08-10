@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -13,17 +14,60 @@ import (
 
 var btihRe = regexp.MustCompile(`(?i)urn:btih:([0-9a-f]{40})`)
 
-// resourceIDArg extracts the resource id from a positional argument that may
-// be a bare infohash or a magnet link.
+// resourceAndRest splits the positional arguments into the resource token
+// and the rest. When the first argument is not an infohash/magnet and stdin
+// is piped, the resource is read from stdin and every positional argument is
+// "rest" — so ids compose in pipelines:
+//
+//	echo 08ada5… | webtor play
+//	some-tool | webtor download --stdout Sintel.mp4
+//
+// (A "-" placeholder was rejected: urfave/cli drops everything after a bare
+// dash, so it cannot carry trailing arguments.)
+func resourceAndRest(cmd *cli.Command) (raw string, rest []string, err error) {
+	s := cmd.Args().Slice()
+	if len(s) > 0 && magnetOrHashRe.MatchString(s[0]) {
+		return s[0], s[1:], nil
+	}
+	if !render.IsTTY(os.Stdin) {
+		b, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
+		if err != nil {
+			return "", nil, err
+		}
+		if raw = strings.TrimSpace(string(b)); raw != "" {
+			return raw, s, nil
+		}
+	}
+	if len(s) > 0 {
+		// Not id-shaped, but it is all we have — let the API answer.
+		return s[0], s[1:], nil
+	}
+	return "", nil, exitcode.Usagef("missing <resource-id> argument (pass it, or pipe an infohash/magnet to stdin)")
+}
+
+// extractResourceID lowercases a bare infohash or pulls it out of a magnet.
+func extractResourceID(raw string) string {
+	if m := btihRe.FindStringSubmatch(raw); m != nil {
+		return strings.ToLower(m[1])
+	}
+	return strings.ToLower(raw)
+}
+
+// resourceIDArg is the single-argument form of resourceAndRest for commands
+// whose only positional argument is the resource.
 func resourceIDArg(cmd *cli.Command, pos int) (string, error) {
-	arg := cmd.Args().Get(pos)
-	if arg == "" {
-		return "", exitcode.Usagef("missing <resource-id> argument")
+	if pos > 0 {
+		arg := cmd.Args().Get(pos)
+		if arg == "" {
+			return "", exitcode.Usagef("missing <resource-id> argument")
+		}
+		return extractResourceID(arg), nil
 	}
-	if m := btihRe.FindStringSubmatch(arg); m != nil {
-		return strings.ToLower(m[1]), nil
+	raw, _, err := resourceAndRest(cmd)
+	if err != nil {
+		return "", err
 	}
-	return strings.ToLower(arg), nil
+	return extractResourceID(raw), nil
 }
 
 func infoCmd() *cli.Command {

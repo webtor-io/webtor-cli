@@ -17,11 +17,14 @@ $ webtor play "magnet:?xt=urn:btih:..."          # straight into VLC
 $ webtor url 08ada5a7a6183aae1e09d831df6748d566095a10 Sintel.mp4 | xargs mpv
 ```
 
-A `.torrent` can be piped straight in:
+Torrents, magnets and infohashes pipe straight in — `add` takes the payload,
+every other command takes the resource id:
 
 ```console
 $ cat file.torrent | webtor add
 $ curl -sL https://example.com/file.torrent | webtor add
+$ echo 08ada5a7a6183aae1e09d831df6748d566095a10 | webtor play
+$ some-tool | webtor download --stdout Sintel.mp4 > out.mp4
 ```
 
 ## First run

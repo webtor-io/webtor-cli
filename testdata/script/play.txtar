@@ -15,3 +15,34 @@ stdout '"url"'
 # unknown player is a usage error with a hint
 ! webtor play 08ada5a7a6183aae1e09d831df6748d566095a10 --player definitely-not-a-player
 stderr 'cannot launch definitely-not-a-player'
+
+# infohash piped to stdin — `... | webtor play`
+stdin hash.txt
+webtor play --player true
+stderr 'launched true: Sintel/Sintel.mkv'
+
+# magnet piped to stdin
+stdin magnet.txt
+webtor play --player true
+stderr 'launched true'
+
+# piped id with an explicit content argument: the first positional is not
+# id-shaped, so the id comes from stdin and the argument names the file
+stdin hash.txt
+webtor -q download --stdout /Sintel/Sintel.mkv
+stdout 'line3'
+
+# piped id + explicit content for url too
+stdin hash.txt
+webtor url aaa
+stdout '/dl/aaa'
+
+# ls composes in pipelines too
+stdin hash.txt
+webtor ls
+stdout 'Sintel.mkv'
+
+-- hash.txt --
+08ADA5A7A6183AAE1E09D831DF6748D566095A10
+-- magnet.txt --
+magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel

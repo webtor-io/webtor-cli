@@ -28,11 +28,13 @@ func playCmd() *cli.Command {
 			&cli.StringFlag{Name: "player", Value: "vlc", Usage: "player command to launch (vlc, mpv, …)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			arg := cmd.Args().First()
-			rid, err := resourceIDArg(cmd, 0)
+			// One stdin read serves both: the id for lookup and, when the
+			// payload is a full magnet, the add-on-miss fallback below.
+			arg, rest, err := resourceAndRest(cmd)
 			if err != nil {
 				return err
 			}
+			rid := extractResourceID(arg)
 			c, _, err := newClient(ctx, cmd)
 			if err != nil {
 				return err
@@ -49,7 +51,11 @@ func playCmd() *cli.Command {
 				return err
 			}
 
-			item, err := pickPlayable(ctx, cmd, c, res)
+			var contentArg string
+			if len(rest) > 0 {
+				contentArg = rest[0]
+			}
+			item, err := pickPlayable(ctx, c, res, contentArg)
 			if err != nil {
 				return err
 			}
@@ -85,8 +91,8 @@ func playCmd() *cli.Command {
 // pickPlayable selects the file to play: the explicit argument, the single
 // file of a single-file torrent, or the biggest video (falling back to
 // audio) file otherwise.
-func pickPlayable(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *webtor.ResourceResponse) (*webtor.ListItem, error) {
-	if arg := cmd.Args().Get(1); arg != "" {
+func pickPlayable(ctx context.Context, c *webtor.Client, res *webtor.ResourceResponse, arg string) (*webtor.ListItem, error) {
+	if arg != "" {
 		return resolveContent(ctx, c, res.ID, arg)
 	}
 	if res.File != nil {

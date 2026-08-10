@@ -25,18 +25,19 @@ func exportCmd() *cli.Command {
 			&cli.StringFlag{Name: "imdb-id", Usage: "IMDB id to improve subtitle lookup"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			rid, err := resourceIDArg(cmd, 0)
+			raw, rest, err := resourceAndRest(cmd)
 			if err != nil {
 				return err
 			}
-			if cmd.Args().Get(1) == "" {
+			rid := extractResourceID(raw)
+			if len(rest) == 0 {
 				return exitcode.Usagef("missing <content-id> argument (see `webtor ls %s`)", rid)
 			}
 			c, _, err := newClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
-			item, err := resolveContent(ctx, c, rid, cmd.Args().Get(1))
+			item, err := resolveContent(ctx, c, rid, rest[0])
 			if err != nil {
 				return err
 			}
@@ -77,18 +78,19 @@ func urlCmd() *cli.Command {
 		Usage:     "print a file's download URL (short-lived, use right away)",
 		ArgsUsage: "<resource-id> <content-id | path>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			rid, err := resourceIDArg(cmd, 0)
+			raw, rest, err := resourceAndRest(cmd)
 			if err != nil {
 				return err
 			}
-			if cmd.Args().Get(1) == "" {
+			rid := extractResourceID(raw)
+			if len(rest) == 0 {
 				return exitcode.Usagef("missing <content-id> argument (see `webtor ls %s`)", rid)
 			}
 			c, _, err := newClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
-			item, err := resolveContent(ctx, c, rid, cmd.Args().Get(1))
+			item, err := resolveContent(ctx, c, rid, rest[0])
 			if err != nil {
 				return err
 			}

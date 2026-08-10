@@ -31,15 +31,15 @@ func downloadCmd() *cli.Command {
 			&cli.BoolFlag{Name: "stdout", Usage: "write the payload to stdout"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			rid, err := resourceIDArg(cmd, 0)
+			raw, args, err := resourceAndRest(cmd)
 			if err != nil {
 				return err
 			}
+			rid := extractResourceID(raw)
 			c, _, err := newClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
-			args := cmd.Args().Slice()[1:]
 			archive := cmd.String("archive")
 			if archive != "" && archive != "zip" && archive != "tar" {
 				return exitcode.Usagef("--archive must be zip or tar")

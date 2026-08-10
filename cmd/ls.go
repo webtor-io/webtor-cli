@@ -24,16 +24,21 @@ func lsCmd() *cli.Command {
 			&cli.StringFlag{Name: "sort", Usage: "sort order: name or size (default: torrent order)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			rid, err := resourceIDArg(cmd, 0)
+			raw, rest, err := resourceAndRest(cmd)
 			if err != nil {
 				return err
 			}
+			rid := extractResourceID(raw)
 			c, _, err := newClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
+			path := ""
+			if len(rest) > 0 {
+				path = rest[0]
+			}
 			o := webtor.ListOptions{
-				Path:   cmd.Args().Get(1),
+				Path:   path,
 				Limit:  cmd.Int("limit"),
 				Offset: cmd.Int("offset"),
 				Output: webtor.ListOutputFlat,
