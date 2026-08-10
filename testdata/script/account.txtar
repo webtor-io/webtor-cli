@@ -1,0 +1,48 @@
+# Account surface (library / vault / profile) against the web-ui dialect,
+# and its rejection on backends that lack it.
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+
+# library round-trip
+webtor library add 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'in library: Sintel'
+webtor library ls
+stdout '08ada5a7a6183aae1e09d831df6748d566095a10'
+stdout 'Sintel'
+webtor library rename 08ada5a7a6183aae1e09d831df6748d566095a10 'Sintel (2010)'
+stderr 'renamed to Sintel \(2010\)'
+webtor library rm 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'removed'
+! webtor library rm 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'not_found'
+
+# vault: pledge, wait through storing → vaulted, then unpledge
+webtor vault pledge 08ada5a7a6183aae1e09d831df6748d566095a10 --wait --poll-interval 10ms
+stderr 'pledged 1 VP'
+stderr 'storing 50.0%'
+stderr 'vaulted'
+webtor vault status
+stdout '08ada5a7a6183aae1e09d831df6748d566095a10'
+webtor vault unpledge 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'pledge withdrawn'
+
+# pledging again conflicts without --wait
+webtor vault pledge 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'pledged'
+! webtor vault pledge 08ada5a7a6183aae1e09d831df6748d566095a10
+stderr 'conflict'
+
+# profile
+webtor profile
+stdout 'user@example.com'
+stdout 'Pro'
+webtor --json profile
+stdout '"tier"'
+
+# the account surface does not exist on a direct rest-api
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL
+! webtor library ls
+stderr 'not supported by the direct backend'
+! webtor vault status
+stderr 'not supported'
+! webtor profile
+stderr 'not supported'

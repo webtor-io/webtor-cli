@@ -38,6 +38,9 @@ func Root() *cli.Command {
 			downloadCmd(),
 			exportCmd(),
 			streamURLCmd(),
+			libraryCmd(),
+			vaultCmd(),
+			profileCmd(),
 			configCmd(),
 		},
 	}
