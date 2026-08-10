@@ -1,0 +1,29 @@
+version: 2
+project_name: webtor-cli
+builds:
+  - main: .
+    binary: webtor
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/webtor-io/webtor-cli/cmd.Version={{.Version}}
+archives:
+  - name_template: "webtor_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: checksums.txt
+brews:
+  - name: webtor
+    repository:
+      owner: webtor-io
+      name: homebrew-tap
+    homepage: https://webtor.io
+    description: CLI for the webtor.io torrent-streaming API
+    license: MIT
+release:
+  github:
+    owner: webtor-io
+    name: webtor-cli
