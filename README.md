@@ -27,6 +27,37 @@ $ echo 08ada5a7a6183aae1e09d831df6748d566095a10 | webtor play
 $ some-tool | webtor download --stdout Sintel.mp4 > out.mp4
 ```
 
+## Install
+
+**Homebrew** (macOS / Linux):
+
+```console
+$ brew install webtor-io/tap/webtor
+```
+
+**Prebuilt binaries** — grab the archive for your OS/arch from the
+[latest release](https://github.com/webtor-io/webtor-cli/releases/latest)
+(darwin / linux / windows, amd64 + arm64), unpack and put `webtor` on your
+`PATH`:
+
+```console
+$ curl -sL https://github.com/webtor-io/webtor-cli/releases/download/v1.0.0/webtor_1.0.0_linux_amd64.tar.gz | tar xz webtor
+$ sudo install webtor /usr/local/bin/
+```
+
+**Docker** — the image pairs naturally with the config-less env mode:
+
+```console
+$ docker run --rm -e WEBTOR_BACKEND=webui -e WEBTOR_API_KEY=... \
+    ghcr.io/webtor-io/webtor-cli:latest info 08ada5a7a6183aae1e09d831df6748d566095a10
+```
+
+**From source** (Go 1.25+; note the binary lands as `webtor-cli`):
+
+```console
+$ go install github.com/webtor-io/webtor-cli@latest
+```
+
 ## First run
 
 `webtor` (or `webtor config init`) walks you through the setup:

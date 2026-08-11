@@ -35,6 +35,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/webtor-io/webtor-cli:latest
             ghcr.io/webtor-io/webtor-cli:${{ github.ref_name }}
