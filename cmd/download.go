@@ -17,15 +17,16 @@ import (
 func downloadCmd() *cli.Command {
 	return &cli.Command{
 		Name:      "download",
-		Usage:     "download files (with resume) or a directory archive",
+		Usage:     "download files, mirroring the torrent's directory layout",
 		ArgsUsage: "<resource-id> [CONTENT-ID | PATH ...]",
-		Description: "Without content arguments, downloads the whole torrent: directly for a\n" +
-			"single-file torrent, as an archive otherwise. Partial local files resume\n" +
-			"from where they stopped.",
+		Description: "Without content arguments the whole torrent is downloaded, file by\n" +
+			"file, into the output directory (default: the current one) with the\n" +
+			"torrent's directory structure preserved. Directory arguments download\n" +
+			"their files the same way; a single explicit file lands under its own\n" +
+			"name. Partial local files resume from where they stopped.",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "output directory (or file name for a single target)"},
-			&cli.StringFlag{Name: "archive", Usage: "force an archive download: zip or tar"},
-			&cli.BoolFlag{Name: "stdout", Usage: "write the payload to stdout"},
+			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "output directory (or file name for a single explicit file)"},
+			&cli.BoolFlag{Name: "stdout", Usage: "write the payload to stdout (single file only)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			raw, args, err := resourceAndRest(cmd, true)
@@ -37,62 +38,69 @@ func downloadCmd() *cli.Command {
 			if err != nil {
 				return err
 			}
-			archive := cmd.String("archive")
-			if archive != "" && archive != "zip" && archive != "tar" {
-				return exitcode.Usagef("--archive must be zip or tar")
-			}
-
 			res, err := c.Resource(ctx, rid)
 			if err != nil {
 				return err
 			}
 
-			// Whole-torrent invocation.
-			if len(args) == 0 {
-				if res.File != nil && archive == "" {
-					return downloadOne(ctx, cmd, c, rid, res.File.ID)
+			// Explicit single file: keep the wget-like shape — the file lands
+			// under its own name (or exactly at -o).
+			if len(args) == 1 {
+				item, _, err := resolveContent(ctx, c, rid, args[0])
+				if err != nil {
+					return err
 				}
-				if archive == "" {
-					archive = "tar"
+				if item.Type != webtor.ListTypeDirectory {
+					return downloadFiles(ctx, cmd, c, rid, []webtor.ListItem{*item}, false)
 				}
-				return downloadArchive(ctx, cmd, c, rid, res.ID, archive, nil)
+			}
+			if cmd.Bool("stdout") {
+				return exitcode.Usagef("--stdout takes exactly one file")
 			}
 
-			// Path arguments that name directories become one archive; files
-			// download individually.
-			var fileIDs []string
-			var dirPaths []string
+			// Everything else downloads file by file with the torrent's
+			// directory layout preserved under the output directory.
+			var prefixes []string
 			for _, a := range args {
 				item, _, err := resolveContent(ctx, c, rid, a)
 				if err != nil {
 					return err
 				}
 				if item.Type == webtor.ListTypeDirectory {
-					dirPaths = append(dirPaths, item.Path)
-					continue
+					prefixes = append(prefixes, strings.TrimSuffix(item.Path, "/")+"/")
+				} else {
+					prefixes = append(prefixes, item.Path)
 				}
-				fileIDs = append(fileIDs, item.ID)
 			}
-			if len(dirPaths) > 0 && len(fileIDs) > 0 {
-				return exitcode.Usagef("mixing files and directories in one download is not supported — run two invocations")
-			}
-			if len(dirPaths) > 0 {
-				if archive == "" {
-					archive = "tar"
-				}
-				return downloadArchive(ctx, cmd, c, rid, res.ID, archive, dirPaths)
-			}
-			if cmd.Bool("stdout") && len(fileIDs) > 1 {
-				return exitcode.Usagef("--stdout takes exactly one file")
-			}
-			for _, id := range fileIDs {
-				if err := downloadOne(ctx, cmd, c, rid, id); err != nil {
+
+			var files []webtor.ListItem
+			limit := min(max(res.FilesCount, 1), 1000)
+			for it, err := range c.ListAll(ctx, rid, webtor.ListOptions{Output: webtor.ListOutputFlat, Limit: limit}) {
+				if err != nil {
 					return err
 				}
+				if it.Type != webtor.ListTypeFile {
+					continue
+				}
+				if len(prefixes) == 0 || matchesAny(it.Path, prefixes) {
+					files = append(files, it)
+				}
 			}
-			return nil
+			if len(files) == 0 {
+				return exitcode.Usagef("nothing to download (try `webtor ls %s`)", rid)
+			}
+			return downloadFiles(ctx, cmd, c, rid, files, true)
 		},
 	}
+}
+
+func matchesAny(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if path == p || strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveContent turns a CLI content argument — a listing id, a numeric file
@@ -149,33 +157,76 @@ func downloadURLFor(ctx context.Context, c *webtor.Client, rid string, item *web
 	return u, nil
 }
 
-func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, contentID string) error {
-	var offset int64
-	var dest string
-
-	toStdout := cmd.Bool("stdout")
-	if !toStdout {
-		// Peek at the descriptor to know name/size before opening the stream,
-		// so an existing partial file can resume.
-		probe, err := c.Export(ctx, rid, contentID, webtor.ExportOptions{Types: []webtor.ExportType{webtor.ExportTypeDownload}})
-		if err != nil {
-			return err
+// downloadFiles fetches the given files one by one. With layout, each file
+// lands under the output directory at its torrent path; otherwise (the
+// single explicit file) under its own name via destPath, or on stdout.
+func downloadFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid string, files []webtor.ListItem, layout bool) error {
+	type report struct {
+		File  string `json:"file"`
+		Bytes int64  `json:"bytes"`
+	}
+	var reports []report
+	var total int64
+	for _, it := range files {
+		var dest string
+		switch {
+		case cmd.Bool("stdout"):
+			dest = ""
+		case layout:
+			dest = filepath.Join(cmd.String("output"), filepath.FromSlash(strings.TrimPrefix(it.Path, "/")))
+		default:
+			name := it.Name
+			if name == "" {
+				name = filepath.Base(it.Path)
+			}
+			dest = destPath(cmd, name)
 		}
-		dest = destPath(cmd, probe.Source.Name)
+		n, err := downloadOne(ctx, cmd, c, rid, &it, dest)
+		if err != nil {
+			return fmt.Errorf("%s: %w", strings.TrimPrefix(it.Path, "/"), err)
+		}
+		total += n
+		if dest != "" {
+			reports = append(reports, report{File: dest, Bytes: n})
+		}
+	}
+	if cmd.Bool("json") && len(reports) > 0 {
+		return render.JSON(os.Stdout, map[string]any{"files": reports, "bytes": total})
+	}
+	if layout && !cmd.Bool("quiet") && !cmd.Bool("json") {
+		_, _ = fmt.Fprintf(os.Stderr, "downloaded %d file(s), %s\n", len(reports), render.Size(total))
+	}
+	return nil
+}
+
+// downloadOne fetches one file to dest ("" = stdout), resuming a partial
+// local file, and returns the file's on-disk size when done. The item
+// already carries name and size, so no probe request is needed.
+func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid string, item *webtor.ListItem, dest string) (int64, error) {
+	var offset int64
+	toStdout := dest == ""
+	if !toStdout {
 		if st, err := os.Stat(dest); err == nil {
 			switch {
-			case st.Size() == probe.Source.Size:
-				_, _ = fmt.Fprintf(os.Stderr, "%s: already complete\n", dest)
-				return nil
-			case st.Size() < probe.Source.Size:
+			case st.Size() == item.Size:
+				if !cmd.Bool("quiet") && !cmd.Bool("json") {
+					_, _ = fmt.Fprintf(os.Stderr, "%s: already complete\n", dest)
+				}
+				return item.Size, nil
+			case st.Size() < item.Size:
 				offset = st.Size()
+			}
+		}
+		if dir := filepath.Dir(dest); dir != "." && dir != "" {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return 0, err
 			}
 		}
 	}
 
-	d, err := c.OpenDownload(ctx, rid, contentID, webtor.WithOffset(offset))
+	d, err := c.OpenDownload(ctx, rid, item.ID, webtor.WithOffset(offset))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { _ = d.Close() }()
 
@@ -186,9 +237,9 @@ func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, c
 	} else {
 		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if offset > 0 {
+		if offset > 0 && !cmd.Bool("quiet") && !cmd.Bool("json") {
 			_, _ = fmt.Fprintf(os.Stderr, "%s: resuming at %s\n", dest, render.Size(offset))
 		}
 		out, closeOut = f, f.Close
@@ -196,7 +247,7 @@ func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, c
 
 	label := d.Name
 	if label == "" {
-		label = contentID
+		label = item.ID
 	}
 	bar, finish := render.NewProgress(os.Stderr, label, d.Size-offset,
 		render.IsTTY(os.Stderr), cmd.Bool("quiet") || cmd.Bool("json"))
@@ -206,51 +257,9 @@ func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, c
 		err = cerr
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if cmd.Bool("json") && !toStdout {
-		return render.JSON(os.Stdout, map[string]any{"file": dest, "bytes": d.BytesRead() + offset})
-	}
-	return nil
-}
-
-func downloadArchive(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid, contentID, format string, paths []string) error {
-	rc, name, err := c.OpenArchive(ctx, rid, contentID, webtor.ArchiveFormat(format), paths)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rc.Close() }()
-
-	var out io.Writer
-	var closeOut func() error = func() error { return nil }
-	dest := ""
-	if cmd.Bool("stdout") {
-		out = os.Stdout
-	} else {
-		dest = destPath(cmd, name)
-		f, err := os.Create(dest)
-		if err != nil {
-			return err
-		}
-		out, closeOut = f, f.Close
-	}
-
-	// Archives are packed on the fly: no size, no resume — spinner-less copy
-	// with milestone output suppressed (size 0 renders nothing).
-	bar, finish := render.NewProgress(os.Stderr, name, -1,
-		render.IsTTY(os.Stderr), cmd.Bool("quiet") || cmd.Bool("json"))
-	n, err := io.Copy(io.MultiWriter(out, bar), rc)
-	finish()
-	if cerr := closeOut(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return err
-	}
-	if cmd.Bool("json") && dest != "" {
-		return render.JSON(os.Stdout, map[string]any{"file": dest, "bytes": n})
-	}
-	return nil
+	return d.BytesRead() + offset, nil
 }
 
 // destPath places name under -o (or the working directory). When -o names a

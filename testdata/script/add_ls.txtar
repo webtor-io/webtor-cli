@@ -32,7 +32,7 @@ stdout 'Sintel'
 # ls: human table
 webtor ls 08ada5a7a6183aae1e09d831df6748d566095a10
 stdout 'Sintel.mkv'
-stdout '734.0 MB'
+stdout '18 B'
 stdout 'poster.jpg'
 
 # ls: JSON

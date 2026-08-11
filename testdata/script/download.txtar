@@ -1,13 +1,26 @@
-# Download UX against the rest-api dialect fake: /dl serves an 18-byte
-# payload of three lines.
+# Download UX against the rest-api dialect fake: two files under /Sintel/,
+# /dl serves an 18-byte payload of three lines.
 env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL
 
-# download one file by listing id into a directory
-webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
-cmp out/Sintel.mkv full.bin
+# whole torrent, no arguments: file by file, torrent layout preserved
+webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 -o out/
+cmp out/Sintel/Sintel.mkv full.bin
+cmp out/Sintel/poster.jpg full.bin
+stderr 'downloaded 2 file\(s\)'
+
+# the id piped, layout into the current directory — `echo <hash> | webtor download`
+stdin hash.txt
+webtor -q download
+cmp Sintel/Sintel.mkv full.bin
+cmp Sintel/poster.jpg full.bin
+
+# a directory argument downloads its files with the same layout
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 /Sintel -o dir/
+cmp dir/Sintel/Sintel.mkv full.bin
+cmp dir/Sintel/poster.jpg full.bin
 
 # an already complete file is not re-downloaded
-webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
+webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 -o out/
 stderr 'already complete'
 
 # a partial file resumes from its size and ends byte-identical
@@ -16,17 +29,26 @@ webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o part/
 stderr 'resuming at'
 cmp part/Sintel.mkv full.bin
 
+# a single explicit file lands under its own name (wget-like)
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o single/
+cmp single/Sintel.mkv full.bin
+! exists single/Sintel
+
 # by numeric index, streaming to stdout
 webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 0 --stdout
 stdout 'line3'
+
+# --stdout refuses more than one file
+! webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 --stdout
+stderr 'exactly one file'
 
 # by path inside the torrent
 webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 /Sintel/Sintel.mkv -o bypath/
 cmp bypath/Sintel.mkv full.bin
 
 # JSON report
-rm out/Sintel.mkv
-webtor --json download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o out/
+rm out/Sintel/Sintel.mkv
+webtor --json download 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o json/
 stdout '"bytes": 18'
 
 # export: table of URLs plus the cache hint
@@ -46,6 +68,8 @@ stderr 'no file or directory'
 
 -- part/keep.txt --
 placeholder so the directory exists
+-- hash.txt --
+08ada5a7a6183aae1e09d831df6748d566095a10
 -- partial.bin --
 line1
 -- full.bin --

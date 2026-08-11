@@ -88,7 +88,7 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `auth login` / `status` / `logout` | device-flow login, account info |
 | `add` | store a magnet / infohash / `.torrent` / stdin |
 | `info`, `ls` | inspect a stored torrent (`--tree`, `--all`, `--json`) |
-| `download` | files by id/index/path with resume; directories as tar/zip; `--stdout` |
+| `download` | whole torrent / directories file-by-file with the torrent's layout preserved; single files by id/index/path; resume; `--stdout` |
 | `export`, `url` | resolve the short-lived export URLs / print the download URL |
 | `play` | stream into a media player (`--player vlc` default, mpv/iina work too); picks the biggest video automatically, accepts a raw magnet |
 | `library ls/add/rm/rename` | the account library (webtor.io accounts) |

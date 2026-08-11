@@ -107,16 +107,15 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, 400, "bad_request", "test server requires an explicit limit")
 		return
 	}
-	_, _ = w.Write([]byte(`{"id":"root","path":"/","type":"directory","size":734003200,"items":[
-		{"id":"aaa","name":"Sintel.mkv","path":"/Sintel/Sintel.mkv","type":"file","size":734003000,"media_format":"video","mime_type":"video/x-matroska","ext":"mkv","index":0},
-		{"id":"bbb","name":"poster.jpg","path":"/Sintel/poster.jpg","type":"file","size":200,"media_format":"image","index":1}],"items_count":2}`))
+	// Listing sizes match what /dl actually serves — the CLI's resume and
+	// already-complete checks compare local files against them.
+	_, _ = fmt.Fprintf(w, `{"id":"root","path":"/","type":"directory","size":%d,"items":[
+		{"id":"aaa","name":"Sintel.mkv","path":"/Sintel/Sintel.mkv","type":"file","size":%d,"media_format":"video","mime_type":"video/x-matroska","ext":"mkv","index":0},
+		{"id":"bbb","name":"poster.jpg","path":"/Sintel/poster.jpg","type":"file","size":%d,"media_format":"image","index":1}],"items_count":2}`,
+		2*len(FileBytes), len(FileBytes), len(FileBytes))
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request, cid string) {
-	if cid != "aaa" && cid != "0" && cid != "root" {
-		s.fail(w, 404, "not_found", "content not found")
-		return
-	}
 	base := "http://" + r.Host
 	exports := map[string]any{
 		"download": map[string]any{"url": base + "/dl/" + cid, "meta": map[string]any{"cache": true}},
@@ -124,10 +123,19 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, cid string) {
 	if q := r.URL.Query().Get("types"); q == "" || strings.Contains(q, "stream") {
 		exports["stream"] = map[string]any{"url": base + "/hls/index.m3u8"}
 	}
-	src := map[string]any{"id": "aaa", "name": "Sintel.mkv", "path": "/Sintel/Sintel.mkv",
-		"type": "file", "size": len(FileBytes)}
-	if cid == "root" {
+	var src map[string]any
+	switch cid {
+	case "aaa", "0":
+		src = map[string]any{"id": "aaa", "name": "Sintel.mkv", "path": "/Sintel/Sintel.mkv",
+			"type": "file", "size": len(FileBytes), "media_format": "video"}
+	case "bbb", "1":
+		src = map[string]any{"id": "bbb", "name": "poster.jpg", "path": "/Sintel/poster.jpg",
+			"type": "file", "size": len(FileBytes), "media_format": "image"}
+	case "root":
 		src = map[string]any{"id": "root", "name": "Sintel", "path": "/", "type": "directory", "size": len(FileBytes)}
+	default:
+		s.fail(w, 404, "not_found", "content not found")
+		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"source": src, "exports": exports})
 }
