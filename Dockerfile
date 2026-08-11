@@ -1,7 +1,7 @@
 FROM alpine:latest AS certs
 RUN apk add --no-cache ca-certificates
 
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /webtor .

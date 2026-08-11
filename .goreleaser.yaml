@@ -20,6 +20,7 @@ brews:
     repository:
       owner: webtor-io
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://webtor.io
     description: CLI for the webtor.io torrent-streaming API
     license: MIT
