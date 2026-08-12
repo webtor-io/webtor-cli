@@ -10,6 +10,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
+	"github.com/webtor-io/webtor-cli/internal/config"
 	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
@@ -42,6 +43,7 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 		items := []picker.Item{
 			{Label: "library", Detail: "your saved torrents"},
 			{Label: "vault", Detail: "long-term storage pledges"},
+			{Label: "scan a folder", Detail: "local .torrent files"},
 			{Label: "profile", Detail: "account and plan"},
 			{Label: "quit"},
 		}
@@ -57,6 +59,8 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 			err = libraryBrowse(ctx, cmd, c)
 		case "vault":
 			err = vaultBrowse(ctx, cmd, c)
+		case "scan a folder":
+			err = scanFromMenu(ctx, cmd)
 		case "profile":
 			err = showProfile(ctx, c)
 		case "quit":
@@ -66,6 +70,34 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 			return err
 		}
 	}
+}
+
+// scanFromMenu asks for the folder (Enter = the configured download folder)
+// and opens the scan browser.
+func scanFromMenu(ctx context.Context, cmd *cli.Command) error {
+	def := "."
+	if currentCfg != nil && currentCfg.DownloadDir != "" {
+		def = currentCfg.DownloadDir
+	}
+	dir, err := picker.ReadLine(fmt.Sprintf("Folder to scan [%s]: ", def))
+	if err != nil {
+		return err
+	}
+	if dir == "" {
+		dir = def
+	}
+	infos, skipped, err := scanDir(config.ExpandHome(dir))
+	if err != nil {
+		return err
+	}
+	if skipped > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "skipped %d unparsable .torrent file(s)\n", skipped)
+	}
+	if len(infos) == 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "no .torrent files under %s\n", dir)
+		return nil
+	}
+	return scanBrowse(ctx, cmd, dir, infos)
 }
 
 func showProfile(ctx context.Context, c *webtor.Client) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
@@ -34,9 +35,16 @@ func libraryInteractive(ctx context.Context, cmd *cli.Command) error {
 // entry opens the shared resourceMenu. Esc goes back to the caller.
 func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 	types := []webtor.LibraryType{webtor.LibraryTypeAll, webtor.LibraryTypeMovies, webtor.LibraryTypeSeries}
-	sorts := []webtor.LibrarySort{webtor.LibrarySortRecent, webtor.LibrarySortName}
+	sortsFor := func(t webtor.LibraryType) []webtor.LibrarySort {
+		if t == webtor.LibraryTypeMovies || t == webtor.LibraryTypeSeries {
+			return []webtor.LibrarySort{webtor.LibrarySortRecent, webtor.LibrarySortName, webtor.LibrarySortYear}
+		}
+		return []webtor.LibrarySort{webtor.LibrarySortRecent, webtor.LibrarySortName}
+	}
 	ti, si := 0, 0
 	for {
+		sorts := sortsFor(types[ti])
+		si = si % len(sorts)
 		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{Type: types[ti], Sort: sorts[si]})
 		if err != nil {
 			return err
@@ -47,7 +55,7 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		}
 		items := []picker.Item{
 			{Label: fmt.Sprintf("[ show: %s ]", types[ti]), Detail: "enter switches: all → movies → series"},
-			{Label: fmt.Sprintf("[ sort: %s ]", sorts[si]), Detail: "enter switches: recent → name"},
+			{Label: fmt.Sprintf("[ sort: %s ]", sorts[si]), Detail: "enter switches: " + sortHint(sorts)},
 		}
 		for _, it := range resp.Items {
 			items = append(items, picker.Item{Label: it.Name,
@@ -78,6 +86,14 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 			}
 		}
 	}
+}
+
+func sortHint(sorts []webtor.LibrarySort) string {
+	parts := make([]string, len(sorts))
+	for i, x := range sorts {
+		parts[i] = string(x)
+	}
+	return strings.Join(parts, " → ")
 }
 
 // libraryPrint is the scripted no-subcommand fallback: same as `library ls`
@@ -114,7 +130,7 @@ func libraryCmd() *cli.Command {
 				Usage: "list the library",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "type", Value: "all", Usage: "all, movies or series"},
-					&cli.StringFlag{Name: "sort", Value: "recent", Usage: "recent or name"},
+					&cli.StringFlag{Name: "sort", Value: "recent", Usage: "recent, name, or year (movies/series only)"},
 					&cli.IntFlag{Name: "limit", Usage: "page size (server default 100)"},
 					&cli.IntFlag{Name: "offset"},
 				},

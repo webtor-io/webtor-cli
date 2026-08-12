@@ -56,7 +56,26 @@ env WEBTOR_FORCE_INTERACTIVE=
 webtor 08ada5a7a6183aae1e09d831df6748d566095a10
 stdout 'Sintel'
 
+# scan: a folder of .torrent files lists like the library (scripted)
+env WEBTOR_FORCE_INTERACTIVE=
+webtor scan scans
+stdout 'Sintel.mkv'
+stdout 'SIZE'
+cd scans
+webtor scan
+stdout 'Sintel.mkv'
+cd $WORK
+
+# scan interactively: pick the file -> it is added to the store and the
+# resource menu opens; back out, then quit the list
+env WEBTOR_FORCE_INTERACTIVE=1
+stdin scanpick.txt
+! webtor scan scans
+stderr 'Torrent files in scans:'
+stderr 'browse files'
+
 # unknown command still errors
+env WEBTOR_FORCE_INTERACTIVE=1
 ! webtor definitely-not-a-command
 stderr 'unknown command'
 
@@ -73,4 +92,10 @@ q
 2
 2
 2
+q
+-- scans/one.torrent --
+d8:announce7:someurl4:infod6:lengthi18e4:name10:Sintel.mkv12:piece lengthi16384e6:pieces20:xxxxxxxxxxxxxxxxxxxxee
+-- scanpick.txt --
+1
+b
 q

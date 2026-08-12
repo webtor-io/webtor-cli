@@ -44,6 +44,7 @@ func Root() *cli.Command {
 			playCmd(),
 			libraryCmd(),
 			vaultCmd(),
+			scanCmd(),
 			profileCmd(),
 			configCmd(),
 		},
