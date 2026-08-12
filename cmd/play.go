@@ -153,7 +153,7 @@ func pickPlayable(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *
 		for i, it := range media {
 			items[i] = picker.Item{Label: strings.TrimPrefix(it.Path, "/"), Detail: render.Size(it.Size)}
 		}
-		n, err := picker.Pick(os.Stdin, os.Stderr, "Which file?", items, best)
+		n, err := picker.Pick("Which file?", items, best)
 		if err != nil {
 			return nil, nil, err
 		}

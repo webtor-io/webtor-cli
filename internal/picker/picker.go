@@ -7,8 +7,10 @@ package picker
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -67,9 +69,37 @@ func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 	}
 }
 
-// Pick lets the person choose exactly one item and returns its index.
-// def is the default index (-1 for none).
-func Pick(in io.Reader, out io.Writer, title string, items []Item, def int) (int, error) {
+// Pick lets the person choose exactly one item and returns its index: the
+// arrow-key list on a real terminal, the numbered prompt otherwise (piped
+// answers, WEBTOR_PLAIN_PICKER=1, dumb terminals). def is the default index
+// (-1 for none).
+func Pick(title string, items []Item, def int) (int, error) {
+	if tuiAvailable() {
+		got, err := tuiPick(title, items, def, false)
+		if !errors.Is(err, errTUIUnavailable) {
+			if err != nil {
+				return 0, err
+			}
+			return got[0], nil
+		}
+	}
+	return promptPick(os.Stdin, os.Stderr, title, items, def)
+}
+
+// PickMulti lets the person choose several items: Tab marks in the arrow-key
+// list; the numbered fallback understands "3", "1,4", "2-5", "all".
+func PickMulti(title string, items []Item) ([]int, error) {
+	if tuiAvailable() {
+		got, err := tuiPick(title, items, -1, true)
+		if !errors.Is(err, errTUIUnavailable) {
+			return got, err
+		}
+	}
+	return promptPickMulti(os.Stdin, os.Stderr, title, items)
+}
+
+// promptPick is the line-oriented fallback of Pick.
+func promptPick(in io.Reader, out io.Writer, title string, items []Item, def int) (int, error) {
 	defHint := ""
 	if def >= 0 {
 		defHint = fmt.Sprintf(" [%d]", def+1)
@@ -90,9 +120,10 @@ func Pick(in io.Reader, out io.Writer, title string, items []Item, def int) (int
 	return got[0], nil
 }
 
-// PickMulti lets the person choose several items: "3", "1,4", "2-5", "all",
-// or combinations ("1,3-5"). Returns original indices in list order.
-func PickMulti(in io.Reader, out io.Writer, title string, items []Item) ([]int, error) {
+// promptPickMulti is the line-oriented fallback of PickMulti: "3", "1,4",
+// "2-5", "all", or combinations ("1,3-5"). Returns original indices in list
+// order.
+func promptPickMulti(in io.Reader, out io.Writer, title string, items []Item) ([]int, error) {
 	return prompt(in, out, title+" (e.g. 1,3-5 or all)", items, "",
 		func(answer string, visible []int) ([]int, bool) {
 			if strings.EqualFold(answer, "all") {

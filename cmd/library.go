@@ -40,7 +40,7 @@ func libraryInteractive(ctx context.Context, cmd *cli.Command) error {
 				Detail: render.Size(it.Size) + ", added " + it.AddedAt.Format("2006-01-02")})
 		}
 		items = append(items, picker.Item{Label: "— quit —"})
-		n, err := picker.Pick(os.Stdin, os.Stderr, "Library:", items, -1)
+		n, err := picker.Pick("Library:", items, -1)
 		if err != nil {
 			return err
 		}
@@ -63,7 +63,7 @@ func libraryEntryMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, i
 		{Label: "remove from library"},
 		{Label: "back"},
 	}
-	n, err := picker.Pick(os.Stdin, os.Stderr, entry.Name+":", actions, 0)
+	n, err := picker.Pick(entry.Name+":", actions, 0)
 	if err != nil {
 		return err
 	}

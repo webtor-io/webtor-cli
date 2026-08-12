@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	webtor "github.com/webtor-io/api-sdk-go"
+	"github.com/webtor-io/webtor-cli/internal/picker"
 )
 
 // Exit codes. 0 is success.
@@ -36,6 +37,10 @@ func Usagef(format string, a ...any) error {
 func Classify(err error) (int, string) {
 	if err == nil {
 		return OK, ""
+	}
+	if errors.Is(err, picker.ErrCancelled) {
+		// Backing out of a picker is not an error worth narrating.
+		return Err, ""
 	}
 	var ue *UsageError
 	if errors.As(err, &ue) {

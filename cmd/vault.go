@@ -156,7 +156,7 @@ func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
 				Detail: fmt.Sprintf("%.1f VP, %s", p.Amount, pledgeState(p))})
 		}
 		items = append(items, picker.Item{Label: "— quit —"})
-		n, err := picker.Pick(os.Stdin, os.Stderr, "Vault pledges:", items, -1)
+		n, err := picker.Pick("Vault pledges:", items, -1)
 		if err != nil {
 			return err
 		}
@@ -169,7 +169,7 @@ func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
 			{Label: "withdraw the pledge"},
 			{Label: "back"},
 		}
-		a, err := picker.Pick(os.Stdin, os.Stderr, p.Name+":", actions, 0)
+		a, err := picker.Pick(p.Name+":", actions, 0)
 		if err != nil {
 			return err
 		}

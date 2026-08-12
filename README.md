@@ -98,10 +98,13 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `profile` | account profile |
 | `config init/show/use` | contexts |
 
-**Interactive touches** (terminal only — scripts keep the old behavior):
-`play` asks which file when a torrent has several (Enter = biggest video,
-typing text filters the list), `download -i` picks files from a list
-(`1,3-5`, `all`, or a filter first). Aliases: `dl` = download, `p` = play,
+**Interactive mode** (terminal only — scripts keep the old behavior): the
+pickers are arrow-key lists — ↑↓/jk move, typing filters live, Enter
+selects, Tab marks in multi-select, Esc cancels. `play` asks which file
+when a torrent has several (Enter = biggest video), `download -i` picks
+files from the list, bare `webtor library` / `webtor vault` browse the
+account. Piped answers fall back to a numbered prompt automatically;
+`WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download, `p` = play,
 `lib` = library, `v` = vault, `i` = info, `u` = url.
 
 Every command takes `--json` for machine output; errors then mirror the API's

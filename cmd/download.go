@@ -94,7 +94,7 @@ func downloadCmd() *cli.Command {
 				for i, it := range files {
 					items[i] = picker.Item{Label: strings.TrimPrefix(it.Path, "/"), Detail: render.Size(it.Size)}
 				}
-				picked, err := picker.PickMulti(os.Stdin, os.Stderr, "Which files?", items)
+				picked, err := picker.PickMulti("Which files?", items)
 				if err != nil {
 					return err
 				}
