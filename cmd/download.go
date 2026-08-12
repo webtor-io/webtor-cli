@@ -22,7 +22,8 @@ func downloadCmd() *cli.Command {
 		Usage:     "download files, mirroring the torrent's directory layout",
 		ArgsUsage: "<resource-id> [CONTENT-ID | PATH ...]",
 		Description: "Without content arguments the whole torrent is downloaded, file by\n" +
-			"file, into the output directory (default: the current one) with the\n" +
+			"file, into the output directory (-o, else the configured download\n" +
+			"folder, else the current directory) with the\n" +
 			"torrent's directory structure preserved. Directory arguments download\n" +
 			"their files the same way; a single explicit file lands under its own\n" +
 			"name. Partial local files resume from where they stopped.",
@@ -291,6 +292,18 @@ func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid st
 		return 0, err
 	}
 	return d.BytesRead() + offset, nil
+}
+
+// destLabel names the effective download destination for menu captions.
+func destLabel(cmd *cli.Command) string {
+	base := outputBase(cmd)
+	if base == "" {
+		return "into the current directory"
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(base, home) {
+		base = "~" + strings.TrimPrefix(base, home)
+	}
+	return "into " + base
 }
 
 // outputBase is the effective output directory: the -o flag, then the

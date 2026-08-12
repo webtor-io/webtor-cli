@@ -159,7 +159,7 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 		add := func(label, detail string) { items = append(items, picker.Item{Label: label, Detail: detail}) }
 		add("play", "")
 		add("browse files", fmt.Sprintf("%d files, %s", res.FilesCount, render.Size(res.Size)))
-		add("download all files", "into the current directory")
+		add("download all files", destLabel(cmd))
 		if c.Supports(webtor.CapLibrary) {
 			if inLibrary {
 				add("remove from library", "")
@@ -355,7 +355,7 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 	for {
 		items := []picker.Item{
 			{Label: "play", Detail: ""},
-			{Label: "download", Detail: "into the current directory"},
+			{Label: "download", Detail: destLabel(cmd)},
 			{Label: "show download url", Detail: "short-lived"},
 			{Label: "back"},
 		}
