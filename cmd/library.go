@@ -29,32 +29,53 @@ func libraryInteractive(ctx context.Context, cmd *cli.Command) error {
 	return err
 }
 
-// libraryBrowse lists the library; a picked entry opens the shared
-// resourceMenu. Esc goes back to the caller.
+// libraryBrowse lists the library with section and sort toggles (mirroring
+// web-ui's Torrents/Movies/Series tabs and the API's sort orders); a picked
+// entry opens the shared resourceMenu. Esc goes back to the caller.
 func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
+	types := []webtor.LibraryType{webtor.LibraryTypeAll, webtor.LibraryTypeMovies, webtor.LibraryTypeSeries}
+	sorts := []webtor.LibrarySort{webtor.LibrarySortRecent, webtor.LibrarySortName}
+	ti, si := 0, 0
 	for {
-		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{})
+		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{Type: types[ti], Sort: sorts[si]})
 		if err != nil {
 			return err
 		}
-		if len(resp.Items) == 0 {
+		if len(resp.Items) == 0 && types[ti] == webtor.LibraryTypeAll {
 			_, _ = fmt.Fprintln(os.Stderr, "the library is empty — `webtor add` something first")
 			return nil
 		}
-		items := make([]picker.Item, 0, len(resp.Items))
+		items := []picker.Item{
+			{Label: fmt.Sprintf("[ show: %s ]", types[ti]), Detail: "enter switches: all → movies → series"},
+			{Label: fmt.Sprintf("[ sort: %s ]", sorts[si]), Detail: "enter switches: recent → name"},
+		}
 		for _, it := range resp.Items {
 			items = append(items, picker.Item{Label: it.Name,
 				Detail: render.Size(it.Size) + ", added " + it.AddedAt.Format("2006-01-02")})
 		}
-		n, err := picker.Pick("Library:", items, -1)
+		if len(resp.Items) == 0 {
+			items = append(items, picker.Item{Label: fmt.Sprintf("(no %s in the library)", types[ti])})
+		}
+		def := 0
+		if len(resp.Items) > 0 {
+			def = 2
+		}
+		n, err := picker.Pick(fmt.Sprintf("Library (%s, %s):", types[ti], sorts[si]), items, def)
 		if back(err) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := resourceMenu(ctx, cmd, c, resp.Items[n].ResourceID); err != nil && !back(err) {
-			return err
+		switch {
+		case n == 0:
+			ti = (ti + 1) % len(types)
+		case n == 1:
+			si = (si + 1) % len(sorts)
+		case n-2 < len(resp.Items):
+			if err := resourceMenu(ctx, cmd, c, resp.Items[n-2].ResourceID); err != nil && !back(err) {
+				return err
+			}
 		}
 	}
 }

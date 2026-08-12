@@ -21,12 +21,35 @@ webtor 08ada5a7a6183aae1e09d831df6748d566095a10
 ! stderr 'vault'
 stderr 'browse files'
 
-# browse: enter the directory (item 1 "Sintel/"), pick the second file
-# (poster.jpg), download it, back out of everything
+# browse: the wrapper directory Sintel/ is skipped, so the first screen
+# already lists the files; pick the second (poster.jpg), download it, quit
 stdin browse.txt
 ! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
 stderr 'poster.jpg:'
 exists poster.jpg
+
+# default download folder: no -o, WEBTOR_DOWNLOAD_DIR takes it, layout kept
+env WEBTOR_DOWNLOAD_DIR=$WORK/dl_default
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10
+exists dl_default/Sintel/Sintel.mkv
+exists dl_default/Sintel/poster.jpg
+
+# local-first playback: the file above is complete on disk, so play uses it
+webtor play 08ada5a7a6183aae1e09d831df6748d566095a10 /Sintel/Sintel.mkv --player true
+stderr 'playing from disk'
+stderr 'dl_default'
+env WEBTOR_DOWNLOAD_DIR=
+
+# library toggles in the browser: switching the section relists with the
+# new title (webui dialect needed for the library surface)
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+webtor library add 08ada5a7a6183aae1e09d831df6748d566095a10
+stdin toggles.txt
+! webtor library
+stderr 'Library \(all, recent\):'
+stderr 'Library \(movies, recent\):'
+stderr 'Library \(movies, name\):'
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_API_KEY=
 
 # scripted (no force flag): `webtor <id>` prints the descriptor
 env WEBTOR_FORCE_INTERACTIVE=
@@ -42,9 +65,12 @@ stderr 'unknown command'
 q
 -- back.txt --
 b
+-- toggles.txt --
+1
+2
+q
 -- browse.txt --
 2
-1
 2
 2
 q

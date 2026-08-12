@@ -202,84 +202,108 @@ func confirm(question string) bool {
 	return strings.EqualFold(line, "y")
 }
 
+// browseRow is one entry of a browser level.
+type browseRow struct {
+	label, detail string
+	isDir         bool
+	file          *webtor.ListItem
+}
+
+// browseLevel returns the entries visible at dir (a prefix without leading
+// or trailing slash, "" = root): subdirectories first, then files.
+func browseLevel(files []webtor.ListItem, dir string) []browseRow {
+	var dirs []string
+	seen := map[string]bool{}
+	var fileRows []browseRow
+	for i, f := range files {
+		path := strings.TrimPrefix(f.Path, "/")
+		rel := path
+		if dir != "" {
+			if !strings.HasPrefix(path, dir+"/") {
+				continue
+			}
+			rel = strings.TrimPrefix(path, dir+"/")
+		}
+		if name, rest, found := strings.Cut(rel, "/"); found && rest != "" {
+			if !seen[name] {
+				seen[name] = true
+				dirs = append(dirs, name)
+			}
+		} else {
+			fileRows = append(fileRows, browseRow{label: rel, detail: render.Size(f.Size), file: &files[i]})
+		}
+	}
+	sort.Strings(dirs)
+	rows := make([]browseRow, 0, len(dirs)+len(fileRows))
+	for _, d := range dirs {
+		rows = append(rows, browseRow{label: d + "/", isDir: true})
+	}
+	return append(rows, fileRows...)
+}
+
 // browseFiles walks the torrent's directory tree: Enter descends into a
-// directory or opens the per-file menu, Esc goes one directory up (and out
-// of the browser at the root).
+// directory or opens the per-file menu, Esc goes one directory up and out of
+// the browser at the top. Wrapper-only levels (the single top-level folder
+// most torrents ship) are skipped on the way in, and Esc treats the first
+// real level as the top.
 func browseFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *webtor.ResourceResponse) error {
 	files, err := listFiles(ctx, c, res.ID, res.FilesCount)
 	if err != nil {
 		return err
 	}
-	dir := "" // current prefix without trailing slash, "" = root
+	base := ""
 	for {
-		type row struct {
-			label, detail string
-			isDir         bool
-			file          *webtor.ListItem
+		rows := browseLevel(files, base)
+		if len(rows) != 1 || !rows[0].isDir {
+			break
 		}
-		var dirs []string
-		seen := map[string]bool{}
-		var rows []row
-		for i, f := range files {
-			rel := strings.TrimPrefix(strings.TrimPrefix(f.Path, "/"), strings.TrimPrefix(dir+"/", "/"))
-			if dir != "" && !strings.HasPrefix(strings.TrimPrefix(f.Path, "/"), strings.TrimPrefix(dir, "/")+"/") {
-				continue
-			}
-			if dir == "" {
-				rel = strings.TrimPrefix(f.Path, "/")
-			}
-			if name, rest, found := strings.Cut(rel, "/"); found && rest != "" {
-				if !seen[name] {
-					seen[name] = true
-					dirs = append(dirs, name)
-				}
-			} else {
-				rows = append(rows, row{label: rel, detail: render.Size(f.Size), file: &files[i]})
-			}
-		}
-		sort.Strings(dirs)
-		items := make([]picker.Item, 0, len(dirs)+len(rows))
-		all := make([]row, 0, len(dirs)+len(rows))
-		for _, d := range dirs {
-			all = append(all, row{label: d + "/", isDir: true})
-			items = append(items, picker.Item{Label: d + "/"})
-		}
-		for _, r := range rows {
-			all = append(all, r)
-			items = append(items, picker.Item{Label: r.label, Detail: r.detail})
+		base = joinDir(base, strings.TrimSuffix(rows[0].label, "/"))
+	}
+	dir := base
+	for {
+		rows := browseLevel(files, dir)
+		items := make([]picker.Item, len(rows))
+		for i, r := range rows {
+			items[i] = picker.Item{Label: r.label, Detail: r.detail}
 		}
 		title := res.Name + "/"
 		if dir != "" {
-			title = strings.TrimPrefix(dir, "/") + "/"
+			title = dir + "/"
 		}
 		n, err := picker.Pick(title, items, 0)
 		if back(err) {
-			if dir == "" {
+			if dir == base {
 				return nil
 			}
+			parent := ""
 			if i := strings.LastIndex(dir, "/"); i > 0 {
-				dir = dir[:i]
-			} else {
-				dir = ""
+				parent = dir[:i]
 			}
+			if len(parent) < len(base) {
+				return nil
+			}
+			dir = parent
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		picked := all[n]
+		picked := rows[n]
 		if picked.isDir {
-			if dir == "" {
-				dir = strings.TrimSuffix(picked.label, "/")
-			} else {
-				dir = dir + "/" + strings.TrimSuffix(picked.label, "/")
-			}
+			dir = joinDir(dir, strings.TrimSuffix(picked.label, "/"))
 			continue
 		}
 		if err := fileMenu(ctx, cmd, c, res.ID, picked.file); err != nil && !back(err) {
 			return err
 		}
 	}
+}
+
+func joinDir(dir, name string) string {
+	if dir == "" {
+		return name
+	}
+	return dir + "/" + name
 }
 
 // fileMenu is the per-file action screen inside the browser.
@@ -300,11 +324,7 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 		}
 		switch items[n].Label {
 		case "play":
-			u, uerr := downloadURLFor(ctx, c, rid, item, nil)
-			if uerr != nil {
-				return uerr
-			}
-			err = launchWithPlayer(cmd, u, item.Path)
+			err = playItem(ctx, cmd, c, rid, item, nil)
 		case "download":
 			err = downloadFiles(ctx, cmd, c, rid, []webtor.ListItem{*item}, false)
 		case "show download url":

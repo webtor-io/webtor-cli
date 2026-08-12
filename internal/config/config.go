@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	webtor "github.com/webtor-io/api-sdk-go"
 	"gopkg.in/yaml.v3"
@@ -33,6 +34,9 @@ type Context struct {
 type Config struct {
 	Current  string             `yaml:"current"`
 	Contexts map[string]Context `yaml:"contexts"`
+	// DownloadDir is where downloads land when -o is not given; empty means
+	// the current directory.
+	DownloadDir string `yaml:"download_dir,omitempty"`
 }
 
 // Credentials is credentials.yaml: per-context secrets, kept out of the
@@ -59,6 +63,16 @@ func Dir() string {
 		return ".webtor"
 	}
 	return filepath.Join(home, ".config", "webtor")
+}
+
+// ExpandHome resolves a leading ~ to the home directory.
+func ExpandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p[1:], "/"))
+		}
+	}
+	return p
 }
 
 func configPath() string      { return filepath.Join(Dir(), "config.yaml") }
@@ -116,6 +130,9 @@ type Resolved struct {
 	Name    string
 	Context Context
 	Creds   ContextCredentials
+	// DownloadDir is the default output directory (empty = current dir),
+	// with ~ already expanded.
+	DownloadDir string
 	// FromEnv marks the config-less WEBTOR_BACKEND mode: nothing is stored
 	// on disk for this configuration.
 	FromEnv bool
@@ -128,9 +145,10 @@ type Resolved struct {
 func Resolve(contextFlag string) (*Resolved, error) {
 	if b := os.Getenv("WEBTOR_BACKEND"); b != "" {
 		r := &Resolved{
-			Name:    "env",
-			FromEnv: true,
-			Context: Context{Backend: BackendName(b), BaseURL: os.Getenv("WEBTOR_BASE_URL")},
+			Name:        "env",
+			FromEnv:     true,
+			DownloadDir: ExpandHome(os.Getenv("WEBTOR_DOWNLOAD_DIR")),
+			Context:     Context{Backend: BackendName(b), BaseURL: os.Getenv("WEBTOR_BASE_URL")},
 			Creds: ContextCredentials{
 				APIKey: os.Getenv("WEBTOR_API_KEY"),
 				Token:  os.Getenv("WEBTOR_TOKEN"),
@@ -153,7 +171,7 @@ func Resolve(contextFlag string) (*Resolved, error) {
 	if !ok {
 		return nil, fmt.Errorf("context %q not found in %s", name, configPath())
 	}
-	r := &Resolved{Name: name, Context: cx}
+	r := &Resolved{Name: name, Context: cx, DownloadDir: ExpandHome(cfg.DownloadDir)}
 	if c := creds[name]; c != nil {
 		r.Creds = *c
 	}

@@ -119,6 +119,11 @@ func Main(ctx context.Context, args []string) int {
 	return code
 }
 
+// currentCfg is the configuration newClient resolved for this invocation;
+// download-path helpers read DownloadDir from it. A CLI process serves one
+// invocation, so a package variable is acceptable plumbing here.
+var currentCfg *config.Resolved
+
 // newClient resolves the configuration (running the first-run wizard when
 // appropriate) and builds the SDK client.
 func newClient(ctx context.Context, cmd *cli.Command) (*webtor.Client, *config.Resolved, error) {
@@ -135,6 +140,7 @@ func newClient(ctx context.Context, cmd *cli.Command) (*webtor.Client, *config.R
 			return nil, nil, &exitcode.UsageError{Msg: err.Error()}
 		}
 	}
+	currentCfg = r
 	b, err := r.Backend()
 	if err != nil {
 		return nil, nil, &exitcode.UsageError{Msg: err.Error()}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -71,11 +72,48 @@ func runPlay(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *webto
 	if err != nil {
 		return err
 	}
-	u, err := downloadURLFor(ctx, c, res.ID, item, resp)
+	return playItem(ctx, cmd, c, res.ID, item, resp)
+}
+
+// playItem plays one file: a complete local copy from a previous download is
+// preferred over streaming — the disk wins on seeking and spends no traffic.
+func playItem(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid string, item *webtor.ListItem, resp *webtor.ExportResponse) error {
+	if p := localCopy(cmd, item); p != "" {
+		if !cmd.Bool("quiet") && !cmd.Bool("json") {
+			_, _ = fmt.Fprintf(os.Stderr, "complete local copy found — playing from disk: %s\n", p)
+		}
+		return launchWithPlayer(cmd, p, item.Path)
+	}
+	u, err := downloadURLFor(ctx, c, rid, item, resp)
 	if err != nil {
 		return err
 	}
 	return launchWithPlayer(cmd, u, item.Path)
+}
+
+// localCopy returns the path of a fully downloaded copy of item, looking in
+// the effective download directory (torrent layout), the current directory
+// (layout and bare-name forms). Size must match exactly — a partial download
+// must keep streaming from the API.
+func localCopy(cmd *cli.Command, item *webtor.ListItem) string {
+	if item.Size <= 0 {
+		return ""
+	}
+	rel := filepath.FromSlash(strings.TrimPrefix(item.Path, "/"))
+	var cands []string
+	if base := outputBase(cmd); base != "" {
+		cands = append(cands, filepath.Join(base, rel))
+	}
+	cands = append(cands, rel, filepath.Base(rel))
+	for _, p := range cands {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Size() == item.Size {
+			if abs, err := filepath.Abs(p); err == nil {
+				return abs
+			}
+			return p
+		}
+	}
+	return ""
 }
 
 // launchWithPlayer hands the URL to the configured player and reports the

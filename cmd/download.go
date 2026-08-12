@@ -204,7 +204,7 @@ func downloadFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid 
 		case cmd.Bool("stdout"):
 			dest = ""
 		case layout:
-			dest = filepath.Join(cmd.String("output"), filepath.FromSlash(strings.TrimPrefix(it.Path, "/")))
+			dest = filepath.Join(outputBase(cmd), filepath.FromSlash(strings.TrimPrefix(it.Path, "/")))
 		default:
 			name := it.Name
 			if name == "" {
@@ -293,10 +293,22 @@ func downloadOne(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid st
 	return d.BytesRead() + offset, nil
 }
 
-// destPath places name under -o (or the working directory). When -o names a
+// outputBase is the effective output directory: the -o flag, then the
+// configured download folder, then the current directory ("").
+func outputBase(cmd *cli.Command) string {
+	if o := cmd.String("output"); o != "" {
+		return o
+	}
+	if currentCfg != nil {
+		return currentCfg.DownloadDir
+	}
+	return ""
+}
+
+// destPath places name under the effective output directory. When -o names a
 // file (has an extension or exists as a file), it is used verbatim.
 func destPath(cmd *cli.Command, name string) string {
-	o := cmd.String("output")
+	o := outputBase(cmd)
 	if o == "" {
 		return name
 	}

@@ -107,9 +107,21 @@ func Run(ctx context.Context, w IO) error {
 		return fmt.Errorf("unknown choice %q", choice)
 	}
 
+	dl, err := w.ask(sc, "Download folder (Enter = ~/Downloads/webtor, \".\" = always the current directory): ")
+	if err != nil {
+		return err
+	}
+	switch dl {
+	case "":
+		dl = "~/Downloads/webtor"
+	case ".":
+		dl = ""
+	}
+
 	cfg := &config.Config{
-		Current:  "default",
-		Contexts: map[string]config.Context{"default": cx},
+		Current:     "default",
+		Contexts:    map[string]config.Context{"default": cx},
+		DownloadDir: dl,
 	}
 	if err := config.Save(cfg, config.Credentials{}); err != nil {
 		return err

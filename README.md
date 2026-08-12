@@ -70,7 +70,11 @@ $ go install github.com/webtor-io/webtor-cli@latest
 3. **Self-hosted** — point it at your own
    [rest-api](https://github.com/webtor-io/self-hosted) base URL.
 
-Configuration lives in `~/.config/webtor/config.yaml`. API keys go to the OS
+Configuration lives in `~/.config/webtor/config.yaml`. The setup asks for
+a download folder (default `~/Downloads/webtor`; `download_dir` in the
+config, `WEBTOR_DOWNLOAD_DIR` in env mode) — `download` without `-o` lands
+there, and `play` prefers a complete local copy from that folder over
+streaming. API keys go to the OS
 keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service);
 where no keyring is available they fall back to `credentials.yaml` (0600).
 `WEBTOR_NO_KEYRING=1` forces the file. Multiple named contexts are supported:
@@ -103,9 +107,11 @@ screens are arrow-key lists — ↑↓/jk move, typing filters live, Enter
 selects, Tab marks in multi-select, **Esc goes one screen back, Ctrl-C
 quits**. Bare `webtor` opens the top menu (library / vault / profile);
 `webtor <resource-id>` (or a magnet) opens the torrent's action menu —
-play, browse the file tree (Enter descends, Esc ascends), download,
-library and vault actions in one place; the same menu serves entries
-picked in the library and vault browsers. `play` asks which file when a
+play, browse the file tree (Enter descends, Esc ascends; a torrent's
+single wrapper folder is skipped), download, library and vault actions in
+one place; the same menu serves entries picked in the library and vault
+browsers. The library browser has section (all / movies / series) and
+sort (recent / name) toggles, mirroring the web-ui tabs. `play` asks which file when a
 torrent has several (Enter = biggest video), `download -i` picks files
 from the list. Piped answers fall back to a numbered prompt (`b` = back,
 `q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,
