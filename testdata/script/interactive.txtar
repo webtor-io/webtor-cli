@@ -22,11 +22,16 @@ webtor 08ada5a7a6183aae1e09d831df6748d566095a10
 stderr 'browse files'
 
 # browse: the wrapper directory Sintel/ is skipped, so the first screen
-# already lists the files; pick the second (poster.jpg), download it, quit
+# already lists the files; pick the second (poster.jpg), download it (a
+# background task; synchronous under the test hook), visit the downloads
+# screen, clear the finished task, quit
+env WEBTOR_SYNC_DOWNLOADS=1
 stdin browse.txt
 ! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
-stderr 'poster.jpg:'
+stderr 'Downloads:'
+stderr 'done ·'
 exists poster.jpg
+env WEBTOR_SYNC_DOWNLOADS=
 
 # default download folder: no -o, WEBTOR_DOWNLOAD_DIR takes it, layout kept
 env WEBTOR_DOWNLOAD_DIR=$WORK/dl_default
@@ -103,6 +108,8 @@ q
 2
 2
 2
+4
+1
 q
 -- scans/one.torrent --
 d8:announce7:someurl4:infod6:lengthi18e4:name10:Sintel.mkv12:piece lengthi16384e6:pieces20:xxxxxxxxxxxxxxxxxxxxee

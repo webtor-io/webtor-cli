@@ -134,6 +134,12 @@ func launchWithPlayer(cmd *cli.Command, u, path string) error {
 			"player": player, "file": path, "url": u,
 		})
 	}
+	if interactive(cmd) && render.IsTTY(os.Stdin) {
+		return picker.Show("Now playing:", []string{
+			strings.TrimPrefix(path, "/"),
+			"player: " + player,
+		})
+	}
 	if !cmd.Bool("quiet") {
 		_, _ = fmt.Fprintf(os.Stderr, "launched %s: %s\n", player, strings.TrimPrefix(path, "/"))
 	}

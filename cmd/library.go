@@ -79,6 +79,11 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		if len(resp.Items) == 0 {
 			items = append(items, picker.Item{Label: fmt.Sprintf("(no matching %s in the library)", types[ti])})
 		}
+		dlIndex := -1
+		if dl := downloadsLabel(); dl != "" {
+			items = append(items, picker.Item{Label: dl, Detail: "watch progress, cancel"})
+			dlIndex = len(items) - 1
+		}
 		def := 0
 		if len(resp.Items) > 0 {
 			def = toggles
@@ -100,6 +105,10 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		}
 		last = n
 		switch {
+		case n == dlIndex:
+			if err := downloadsScreen(); err != nil && !back(err) {
+				return err
+			}
 		case n == 0:
 			ti = (ti + 1) % len(types)
 		case n == 1:

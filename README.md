@@ -115,8 +115,10 @@ browsers. The library browser has section (all / movies / series),
 sort (recent / name, plus year and rating for movies/series) and
 watched-filter (all / unwatched / watched) toggles, mirroring the web-ui
 tabs. `play` asks which file when a
-torrent has several (Enter = biggest video), `download -i` picks files
-from the list. Piped answers fall back to a numbered prompt (`b` = back,
+torrent has several (Enter = biggest video) and confirms on its own
+screen; menu downloads run in the background — every menu grows a
+"downloads (N active)" entry opening a live progress screen where Enter
+cancels a running task. `download -i` picks files from the list. Piped answers fall back to a numbered prompt (`b` = back,
 `q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,
 `p` = play, `lib` = library, `v` = vault, `i` = info, `u` = url.
 

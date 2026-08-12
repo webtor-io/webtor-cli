@@ -102,7 +102,7 @@ func scanBrowse(ctx context.Context, cmd *cli.Command, dir string, infos []*torr
 	}
 	last := -1
 	for {
-		items := make([]picker.Item, len(infos))
+		items := make([]picker.Item, len(infos), len(infos)+1)
 		for i, ti := range infos {
 			rel := ti.Path
 			if r, err := filepath.Rel(dir, ti.Path); err == nil {
@@ -110,6 +110,11 @@ func scanBrowse(ctx context.Context, cmd *cli.Command, dir string, infos []*torr
 			}
 			items[i] = picker.Item{Label: ti.Name,
 				Detail: fmt.Sprintf("%s, %d files, %s", render.Size(ti.Size), ti.FilesCount, rel)}
+		}
+		dlIndex := -1
+		if dl := downloadsLabel(); dl != "" {
+			items = append(items, picker.Item{Label: dl, Detail: "watch progress, cancel"})
+			dlIndex = len(items) - 1
 		}
 		n, err := picker.Pick(fmt.Sprintf("Torrent files in %s:", dir), items, min(last, len(items)-1))
 		if back(err) {
@@ -119,6 +124,12 @@ func scanBrowse(ctx context.Context, cmd *cli.Command, dir string, infos []*torr
 			return err
 		}
 		last = n
+		if n == dlIndex {
+			if err := downloadsScreen(); err != nil && !back(err) {
+				return err
+			}
+			continue
+		}
 		ti := infos[n]
 		b, err := os.ReadFile(ti.Path)
 		if err != nil {

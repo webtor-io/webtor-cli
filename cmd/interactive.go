@@ -46,8 +46,11 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 			{Label: "vault", Detail: "long-term storage pledges"},
 			{Label: "scan a folder", Detail: "local .torrent files"},
 			{Label: "profile", Detail: "account and plan"},
-			{Label: "quit"},
 		}
+		if dl := downloadsLabel(); dl != "" {
+			items = append(items, picker.Item{Label: dl, Detail: "watch progress, cancel"})
+		}
+		items = append(items, picker.Item{Label: "quit"})
 		n, err := picker.Pick("webtor:", items, last)
 		if back(err) {
 			return nil
@@ -56,6 +59,14 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 			return err
 		}
 		last = n
+		switch {
+		case strings.HasPrefix(items[n].Label, "downloads"):
+			err = downloadsScreen()
+			if err != nil && !back(err) {
+				return err
+			}
+			continue
+		}
 		switch items[n].Label {
 		case "library":
 			err = libraryBrowse(ctx, cmd, c)
@@ -177,6 +188,9 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 			add("vault: watch transfer", pledge.Status)
 			add("vault: withdraw pledge", "")
 		}
+		if dl := downloadsLabel(); dl != "" {
+			add(dl, "watch progress, cancel")
+		}
 		add("back", "")
 
 		n, err := picker.Pick(name+":", items, min(last, len(items)-1))
@@ -187,6 +201,12 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 			return err
 		}
 		last = n
+		if strings.HasPrefix(items[n].Label, "downloads") {
+			if err := downloadsScreen(); err != nil && !back(err) {
+				return err
+			}
+			continue
+		}
 		switch items[n].Label {
 		case "play":
 			err = runPlay(ctx, cmd, c, res, "")
@@ -195,7 +215,9 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 		case "download all files":
 			var files []webtor.ListItem
 			if files, err = listFiles(ctx, c, rid, res.FilesCount); err == nil {
-				err = downloadFiles(ctx, cmd, c, rid, files, true)
+				// Background: the menu returns immediately and grows a
+				// "downloads" entry with live progress.
+				downloads.start(cmd, c, rid, name, files, true)
 			}
 		case "add to library":
 			if _, err = c.LibraryAdd(ctx, rid); err == nil {
@@ -357,8 +379,11 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 			{Label: "play", Detail: ""},
 			{Label: "download", Detail: destLabel(cmd)},
 			{Label: "show download url", Detail: "short-lived"},
-			{Label: "back"},
 		}
+		if dl := downloadsLabel(); dl != "" {
+			items = append(items, picker.Item{Label: dl, Detail: "watch progress, cancel"})
+		}
+		items = append(items, picker.Item{Label: "back"})
 		n, err := picker.Pick(strings.TrimPrefix(item.Path, "/")+":", items, last)
 		if back(err) {
 			return nil
@@ -367,11 +392,17 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 			return err
 		}
 		last = n
+		if strings.HasPrefix(items[n].Label, "downloads") {
+			if err := downloadsScreen(); err != nil && !back(err) {
+				return err
+			}
+			continue
+		}
 		switch items[n].Label {
 		case "play":
 			err = playItem(ctx, cmd, c, rid, item, nil)
 		case "download":
-			err = downloadFiles(ctx, cmd, c, rid, []webtor.ListItem{*item}, false)
+			downloads.start(cmd, c, rid, strings.TrimPrefix(item.Path, "/"), []webtor.ListItem{*item}, false)
 		case "show download url":
 			u, uerr := downloadURLFor(ctx, c, rid, item, nil)
 			if uerr != nil {
