@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
 
@@ -42,7 +43,34 @@ type tuiState struct {
 	multi   bool
 	title   string
 	height  int // viewport rows
+	width   int // terminal columns
 	drawn   int // lines drawn by the previous frame
+}
+
+// fit trims s to the terminal width by display width (CJK counts double),
+// with an ellipsis. A row that wraps would break the redraw arithmetic —
+// the cursor-up rewind counts logical lines, the terminal counts visual
+// ones — so every rendered line must fit in one row.
+func (s *tuiState) fit(text string) string {
+	if s.width <= 1 {
+		return text
+	}
+	return runewidth.Truncate(text, s.width-1, "…")
+}
+
+// resize re-reads the terminal geometry; the viewport height and the
+// per-line width limit follow it.
+func (s *tuiState) resize(fd int) {
+	w, h, err := term.GetSize(fd)
+	if err != nil {
+		return
+	}
+	s.width = w
+	s.height = 15
+	if h > 6 {
+		s.height = min(15, h-4)
+	}
+	s.clamp()
 }
 
 func (s *tuiState) refilter() {
@@ -93,7 +121,14 @@ func (s *tuiState) render(out *os.File) {
 	}
 	line := func(format string, a ...any) {
 		b.WriteString("\r\x1b[K")
-		fmt.Fprintf(&b, format, a...)
+		b.WriteString(s.fit(fmt.Sprintf(format, a...)))
+		b.WriteString("\r\n")
+	}
+	styled := func(prefix, text, suffix string) {
+		b.WriteString("\r\x1b[K")
+		b.WriteString(prefix)
+		b.WriteString(s.fit(text))
+		b.WriteString(suffix)
 		b.WriteString("\r\n")
 	}
 	header := s.title
@@ -117,7 +152,7 @@ func (s *tuiState) render(out *os.File) {
 			row += "  (" + it.Detail + ")"
 		}
 		if vi == s.cursor {
-			line("\x1b[7m▸ %s\x1b[0m", row)
+			styled("\x1b[7m", "▸ "+row, "\x1b[0m")
 		} else {
 			line("  %s", row)
 		}
@@ -133,7 +168,7 @@ func (s *tuiState) render(out *os.File) {
 	if s.multi {
 		hint = "↑↓ move · tab mark · enter confirm · type to filter · esc back · ^c quit" + scroll
 	}
-	line("\x1b[2m%s\x1b[0m", hint)
+	styled("\x1b[2m", hint, "\x1b[0m")
 
 	s.drawn = 2 + max(end-s.offset, 1) // header + rows (or the empty note) + hint
 	_, _ = out.WriteString(b.String())
@@ -152,12 +187,9 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 	restore := func() { _ = term.Restore(fd, oldState) }
 	defer restore()
 
-	height := 15
-	if _, h, err := term.GetSize(fd); err == nil && h > 6 {
-		height = min(height, h-4)
-	}
 	s := &tuiState{items: items, multi: multi, title: title,
-		height: height, checked: map[int]bool{}}
+		height: 15, checked: map[int]bool{}}
+	s.resize(fd)
 	s.refilter()
 	if def >= 0 && def < len(items) {
 		s.cursor = def
@@ -166,6 +198,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 
 	buf := make([]byte, 64)
 	for {
+		s.resize(fd) // survive terminal resizes between keystrokes
 		s.render(out)
 		n, err := in.Read(buf)
 		if err != nil || n == 0 {
