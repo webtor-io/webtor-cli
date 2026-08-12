@@ -39,6 +39,7 @@ func interactive(cmd *cli.Command) bool {
 
 // topMenu is what bare `webtor` opens on a terminal.
 func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
+	last := 0
 	for {
 		items := []picker.Item{
 			{Label: "library", Detail: "your saved torrents"},
@@ -47,13 +48,14 @@ func topMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 			{Label: "profile", Detail: "account and plan"},
 			{Label: "quit"},
 		}
-		n, err := picker.Pick("webtor:", items, 0)
+		n, err := picker.Pick("webtor:", items, last)
 		if back(err) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		last = n
 		switch items[n].Label {
 		case "library":
 			err = libraryBrowse(ctx, cmd, c)
@@ -105,8 +107,13 @@ func showProfile(ctx context.Context, c *webtor.Client) error {
 	if err != nil {
 		return err
 	}
-	printProfile(p)
-	return pause()
+	return picker.Show("Profile:", []string{
+		"email:      " + p.Email,
+		"tier:       " + p.Tier.Name,
+		"scopes:     " + strings.Join(p.Scopes, ","),
+		"show adult: " + fmt.Sprintf("%v", p.Settings.ShowAdult),
+		"user id:    " + p.UserID,
+	})
 }
 
 // pause waits for Enter so printed output survives the next screen redraw.
@@ -125,6 +132,7 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 	if err != nil {
 		return err
 	}
+	last := 0
 	for {
 		name := res.Name
 		var inLibrary bool
@@ -171,13 +179,14 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 		}
 		add("back", "")
 
-		n, err := picker.Pick(name+":", items, 0)
+		n, err := picker.Pick(name+":", items, min(last, len(items)-1))
 		if back(err) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		last = n
 		switch items[n].Label {
 		case "play":
 			err = runPlay(ctx, cmd, c, res, "")
@@ -292,6 +301,7 @@ func browseFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *w
 		base = joinDir(base, strings.TrimSuffix(rows[0].label, "/"))
 	}
 	dir := base
+	lastAt := map[string]int{} // remembered cursor per directory
 	for {
 		rows := browseLevel(files, dir)
 		items := make([]picker.Item, len(rows))
@@ -302,7 +312,7 @@ func browseFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *w
 		if dir != "" {
 			title = dir + "/"
 		}
-		n, err := picker.Pick(title, items, 0)
+		n, err := picker.Pick(title, items, min(lastAt[dir], max(len(items)-1, 0)))
 		if back(err) {
 			if dir == base {
 				return nil
@@ -320,6 +330,7 @@ func browseFiles(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *w
 		if err != nil {
 			return err
 		}
+		lastAt[dir] = n
 		picked := rows[n]
 		if picked.isDir {
 			dir = joinDir(dir, strings.TrimSuffix(picked.label, "/"))
@@ -340,6 +351,7 @@ func joinDir(dir, name string) string {
 
 // fileMenu is the per-file action screen inside the browser.
 func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid string, item *webtor.ListItem) error {
+	last := 0
 	for {
 		items := []picker.Item{
 			{Label: "play", Detail: ""},
@@ -347,13 +359,14 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 			{Label: "show download url", Detail: "short-lived"},
 			{Label: "back"},
 		}
-		n, err := picker.Pick(strings.TrimPrefix(item.Path, "/")+":", items, 0)
+		n, err := picker.Pick(strings.TrimPrefix(item.Path, "/")+":", items, last)
 		if back(err) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		last = n
 		switch items[n].Label {
 		case "play":
 			err = playItem(ctx, cmd, c, rid, item, nil)

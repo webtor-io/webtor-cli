@@ -146,6 +146,7 @@ func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
 // vaultBrowse lists the pledges; a picked entry opens the same shared
 // resourceMenu the library uses. Esc goes back to the caller.
 func vaultBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
+	last := -1
 	for {
 		v, err := c.Vault(ctx)
 		if err != nil {
@@ -162,13 +163,14 @@ func vaultBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error 
 			items = append(items, picker.Item{Label: p.Name,
 				Detail: fmt.Sprintf("%.1f VP, %s", p.Amount, pledgeState(p))})
 		}
-		n, err := picker.Pick("Vault pledges:", items, -1)
+		n, err := picker.Pick("Vault pledges:", items, min(last, len(items)-1))
 		if back(err) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		last = n
 		if err := resourceMenu(ctx, cmd, c, v.Pledges[n].ResourceID); err != nil && !back(err) {
 			return err
 		}

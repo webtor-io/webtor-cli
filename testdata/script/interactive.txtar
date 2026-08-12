@@ -52,6 +52,15 @@ stderr 'Library \(movies, name\):'
 stderr 'Library \(movies, name, unwatched\):'
 env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_API_KEY=
 
+# bare `webtor` opens the top menu; profile renders as a screen (plain
+# fallback prints the lines and waits for Enter), then quit
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+stdin topmenu.txt
+! webtor
+stderr 'Profile:'
+stderr 'tier:       Pro'
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_API_KEY=
+
 # scripted (no force flag): `webtor <id>` prints the descriptor
 env WEBTOR_FORCE_INTERACTIVE=
 webtor 08ada5a7a6183aae1e09d831df6748d566095a10
@@ -100,4 +109,8 @@ d8:announce7:someurl4:infod6:lengthi18e4:name10:Sintel.mkv12:piece lengthi16384e
 -- scanpick.txt --
 1
 b
+q
+-- topmenu.txt --
+4
+
 q

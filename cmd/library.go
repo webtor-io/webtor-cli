@@ -48,6 +48,7 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		return []webtor.LibraryWatched{webtor.LibraryWatchedAll}
 	}
 	ti, si, wi := 0, 0, 0
+	last := -1
 	for {
 		sorts := sortsFor(types[ti])
 		si = si % len(sorts)
@@ -82,6 +83,9 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		if len(resp.Items) > 0 {
 			def = toggles
 		}
+		if last >= 0 {
+			def = min(last, len(items)-1)
+		}
 		title := fmt.Sprintf("Library (%s, %s", types[ti], sorts[si])
 		if watcheds[wi] != webtor.LibraryWatchedAll {
 			title += ", " + string(watcheds[wi])
@@ -94,6 +98,7 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		if err != nil {
 			return err
 		}
+		last = n
 		switch {
 		case n == 0:
 			ti = (ti + 1) % len(types)

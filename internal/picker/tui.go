@@ -174,9 +174,20 @@ func (s *tuiState) render(out *os.File) {
 	_, _ = out.WriteString(b.String())
 }
 
+// wipe erases the frame drawn by the previous render, so leaving a screen
+// leaves no residue behind — the next screen (or plain output) starts where
+// this one stood.
+func (s *tuiState) wipe(out *os.File) {
+	if s.drawn > 0 {
+		_, _ = fmt.Fprintf(out, "\r\x1b[%dA\x1b[J", s.drawn)
+		s.drawn = 0
+	}
+}
+
 // tuiPick runs the interactive list and returns original indices. In single
 // mode the slice has one element; in multi mode Enter returns the marked
-// items, or the cursor row when nothing is marked.
+// items, or the cursor row when nothing is marked. The frame erases itself
+// on exit.
 func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 	in, out := os.Stdin, os.Stderr
 	fd := int(in.Fd())
@@ -184,11 +195,13 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 	if err != nil {
 		return nil, errTUIUnavailable
 	}
-	restore := func() { _ = term.Restore(fd, oldState) }
-	defer restore()
-
 	s := &tuiState{items: items, multi: multi, title: title,
 		height: 15, checked: map[int]bool{}}
+	restore := func() {
+		s.wipe(out)
+		_ = term.Restore(fd, oldState)
+	}
+	defer restore()
 	s.resize(fd)
 	s.refilter()
 	if def >= 0 && def < len(items) {
@@ -321,4 +334,54 @@ func sortInts(s []int) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// Show renders a read-only text screen in the picker's style: the lines are
+// width-fitted, any key returns (Ctrl-C cancels), and the frame erases
+// itself. Piped/plain environments print the lines and wait for Enter.
+func Show(title string, lines []string) error {
+	if !tuiAvailable() {
+		_, _ = fmt.Fprintln(os.Stderr, title)
+		for _, l := range lines {
+			_, _ = fmt.Fprintln(os.Stderr, "  "+l)
+		}
+		_, err := ReadLine("press Enter to continue…")
+		return err
+	}
+	in, out := os.Stdin, os.Stderr
+	fd := int(in.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		_, rerr := ReadLine("press Enter to continue…")
+		return rerr
+	}
+	s := &tuiState{title: title, height: 15}
+	defer func() {
+		s.wipe(out)
+		_ = term.Restore(fd, oldState)
+	}()
+	s.resize(fd)
+
+	var b strings.Builder
+	write := func(text string) {
+		b.WriteString("\r\x1b[K")
+		b.WriteString(s.fit(text))
+		b.WriteString("\r\n")
+	}
+	write(title)
+	for _, l := range lines {
+		write("  " + l)
+	}
+	b.WriteString("\r\x1b[K\x1b[2m")
+	b.WriteString(s.fit("any key to go back"))
+	b.WriteString("\x1b[0m\r\n")
+	s.drawn = len(lines) + 2
+	_, _ = out.WriteString(b.String())
+
+	buf := make([]byte, 8)
+	n, rerr := in.Read(buf)
+	if rerr == nil && n > 0 && buf[0] == 0x03 {
+		return ErrCancelled
+	}
+	return nil
 }
