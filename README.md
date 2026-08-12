@@ -97,7 +97,7 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `download` | whole torrent / directories file-by-file with the torrent's layout preserved; single files by id/index/path; resume; `--stdout` |
 | `export`, `url` | resolve the short-lived export URLs / print the download URL |
 | `play` | stream into a media player (`--player vlc` default, mpv/iina work too); picks the biggest video automatically, accepts a raw magnet |
-| `library ls/add/rm/rename` | the account library (webtor.io accounts); bare `webtor library` on a terminal opens an interactive browser (play/download/rename/remove) |
+| `library ls/add/rm/rename` | the account library (webtor.io accounts); `ls` takes `--type`, `--sort` (incl. year/rating), `--watched`; bare `webtor library` on a terminal opens an interactive browser |
 | `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion; bare `webtor vault` on a terminal browses pledges interactively |
 | `scan [DIR]` | list local `.torrent` files like the library (default: the download folder); interactive pick adds to the store and opens the action menu |
 | `profile` | account profile |
@@ -111,9 +111,10 @@ quits**. Bare `webtor` opens the top menu (library / vault / profile);
 play, browse the file tree (Enter descends, Esc ascends; a torrent's
 single wrapper folder is skipped), download, library and vault actions in
 one place; the same menu serves entries picked in the library and vault
-browsers. The library browser has section (all / movies / series) and
-sort (recent / name, plus year for movies/series) toggles, mirroring the
-web-ui tabs. `play` asks which file when a
+browsers. The library browser has section (all / movies / series),
+sort (recent / name, plus year and rating for movies/series) and
+watched-filter (all / unwatched / watched) toggles, mirroring the web-ui
+tabs. `play` asks which file when a
 torrent has several (Enter = biggest video), `download -i` picks files
 from the list. Piped answers fall back to a numbered prompt (`b` = back,
 `q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,

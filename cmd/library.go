@@ -41,11 +41,19 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 		}
 		return []webtor.LibrarySort{webtor.LibrarySortRecent, webtor.LibrarySortName}
 	}
-	ti, si := 0, 0
+	watchedFor := func(t webtor.LibraryType) []webtor.LibraryWatched {
+		if t == webtor.LibraryTypeMovies || t == webtor.LibraryTypeSeries {
+			return []webtor.LibraryWatched{webtor.LibraryWatchedAll, webtor.LibraryWatchedUnwatched, webtor.LibraryWatchedWatched}
+		}
+		return []webtor.LibraryWatched{webtor.LibraryWatchedAll}
+	}
+	ti, si, wi := 0, 0, 0
 	for {
 		sorts := sortsFor(types[ti])
 		si = si % len(sorts)
-		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{Type: types[ti], Sort: sorts[si]})
+		watcheds := watchedFor(types[ti])
+		wi = wi % len(watcheds)
+		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{Type: types[ti], Sort: sorts[si], Watched: watcheds[wi]})
 		if err != nil {
 			return err
 		}
@@ -57,18 +65,29 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 			{Label: fmt.Sprintf("[ show: %s ]", types[ti]), Detail: "enter switches: all → movies → series"},
 			{Label: fmt.Sprintf("[ sort: %s ]", sorts[si]), Detail: "enter switches: " + sortHint(sorts)},
 		}
+		toggles := 2
+		if len(watcheds) > 1 {
+			items = append(items, picker.Item{Label: fmt.Sprintf("[ watched: %s ]", watcheds[wi]),
+				Detail: "enter switches: all → unwatched → watched"})
+			toggles = 3
+		}
 		for _, it := range resp.Items {
 			items = append(items, picker.Item{Label: it.Name,
 				Detail: render.Size(it.Size) + ", added " + it.AddedAt.Format("2006-01-02")})
 		}
 		if len(resp.Items) == 0 {
-			items = append(items, picker.Item{Label: fmt.Sprintf("(no %s in the library)", types[ti])})
+			items = append(items, picker.Item{Label: fmt.Sprintf("(no matching %s in the library)", types[ti])})
 		}
 		def := 0
 		if len(resp.Items) > 0 {
-			def = 2
+			def = toggles
 		}
-		n, err := picker.Pick(fmt.Sprintf("Library (%s, %s):", types[ti], sorts[si]), items, def)
+		title := fmt.Sprintf("Library (%s, %s", types[ti], sorts[si])
+		if watcheds[wi] != webtor.LibraryWatchedAll {
+			title += ", " + string(watcheds[wi])
+		}
+		title += "):"
+		n, err := picker.Pick(title, items, def)
 		if back(err) {
 			return nil
 		}
@@ -80,8 +99,10 @@ func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) erro
 			ti = (ti + 1) % len(types)
 		case n == 1:
 			si = (si + 1) % len(sorts)
-		case n-2 < len(resp.Items):
-			if err := resourceMenu(ctx, cmd, c, resp.Items[n-2].ResourceID); err != nil && !back(err) {
+		case n == 2 && toggles == 3:
+			wi = (wi + 1) % len(watcheds)
+		case n-toggles >= 0 && n-toggles < len(resp.Items):
+			if err := resourceMenu(ctx, cmd, c, resp.Items[n-toggles].ResourceID); err != nil && !back(err) {
 				return err
 			}
 		}
@@ -130,7 +151,8 @@ func libraryCmd() *cli.Command {
 				Usage: "list the library",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "type", Value: "all", Usage: "all, movies or series"},
-					&cli.StringFlag{Name: "sort", Value: "recent", Usage: "recent, name, or year (movies/series only)"},
+					&cli.StringFlag{Name: "sort", Value: "recent", Usage: "recent, name, year or rating (year/rating: movies/series only)"},
+					&cli.StringFlag{Name: "watched", Value: "all", Usage: "all, watched or unwatched (movies/series only)"},
 					&cli.IntFlag{Name: "limit", Usage: "page size (server default 100)"},
 					&cli.IntFlag{Name: "offset"},
 				},
@@ -140,10 +162,11 @@ func libraryCmd() *cli.Command {
 						return err
 					}
 					resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{
-						Type:   webtor.LibraryType(cmd.String("type")),
-						Sort:   webtor.LibrarySort(cmd.String("sort")),
-						Limit:  cmd.Int("limit"),
-						Offset: cmd.Int("offset"),
+						Type:    webtor.LibraryType(cmd.String("type")),
+						Sort:    webtor.LibrarySort(cmd.String("sort")),
+						Watched: webtor.LibraryWatched(cmd.String("watched")),
+						Limit:   cmd.Int("limit"),
+						Offset:  cmd.Int("offset"),
 					})
 					if err != nil {
 						return err

@@ -49,6 +49,7 @@ stdin toggles.txt
 stderr 'Library \(all, recent\):'
 stderr 'Library \(movies, recent\):'
 stderr 'Library \(movies, name\):'
+stderr 'Library \(movies, name, unwatched\):'
 env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_API_KEY=
 
 # scripted (no force flag): `webtor <id>` prints the descriptor
@@ -87,6 +88,7 @@ b
 -- toggles.txt --
 1
 2
+3
 q
 -- browse.txt --
 2
