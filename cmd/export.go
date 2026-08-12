@@ -75,6 +75,7 @@ func exportCmd() *cli.Command {
 func urlCmd() *cli.Command {
 	return &cli.Command{
 		Name:      "url",
+		Aliases:   []string{"u"},
 		Usage:     "print a file's download URL (short-lived, use right away)",
 		ArgsUsage: "<resource-id> <content-id | path>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {

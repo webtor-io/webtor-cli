@@ -99,6 +99,7 @@ func resourceIDArg(cmd *cli.Command) (string, error) {
 func infoCmd() *cli.Command {
 	return &cli.Command{
 		Name:      "info",
+		Aliases:   []string{"i"},
 		Usage:     "show a stored torrent",
 		ArgsUsage: "<resource-id | magnet>",
 		Action: func(ctx context.Context, cmd *cli.Command) error {

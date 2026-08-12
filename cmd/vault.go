@@ -1,20 +1,27 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
+	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
 
 func vaultCmd() *cli.Command {
 	return &cli.Command{
-		Name:  "vault",
+		Name:    "vault",
+		Aliases: []string{"v"},
 		Usage: "long-term storage pledges (webtor.io accounts only)",
+		Description: "Without a subcommand: an interactive pledge browser on a terminal\n" +
+			"(watch a transfer, withdraw a pledge), the plain status otherwise.",
+		Action: vaultInteractive,
 		Commands: []*cli.Command{
 			{
 				Name:  "status",
@@ -24,34 +31,7 @@ func vaultCmd() *cli.Command {
 					if err != nil {
 						return err
 					}
-					v, err := c.Vault(ctx)
-					if err != nil {
-						return err
-					}
-					if cmd.Bool("json") {
-						return render.JSON(os.Stdout, v)
-					}
-					points := "unlimited"
-					if v.Points.Total != nil {
-						avail := 0.0
-						if v.Points.Available != nil {
-							avail = *v.Points.Available
-						}
-						points = fmt.Sprintf("%.0f of %.0f available", avail, *v.Points.Total)
-					}
-					_, _ = fmt.Printf("points:  %s (%.0f funded, %.0f frozen, %.0f claimable)\n",
-						points, v.Points.Funded, v.Points.Frozen, v.Points.Claimable)
-					_, _ = fmt.Printf("content: %d vaulted, %d loading, %d expiring\n",
-						v.Content.Vaulted, v.Content.Loading, v.Content.Expiring)
-					if len(v.Pledges) > 0 {
-						rows := make([][]string, 0, len(v.Pledges))
-						for _, p := range v.Pledges {
-							rows = append(rows, []string{p.ResourceID, fmt.Sprintf("%.0f VP", p.Amount),
-								pledgeState(p), p.Name})
-						}
-						render.Table(os.Stdout, []string{"RESOURCE", "PLEDGE", "STATE", "NAME"}, rows)
-					}
-					return nil
+					return vaultStatus(ctx, cmd, c)
 				},
 			},
 			{
@@ -112,6 +92,102 @@ func vaultCmd() *cli.Command {
 				},
 			},
 		},
+	}
+}
+
+// vaultStatus prints the account's Vault state (the `vault status` body,
+// shared with the scripted no-subcommand fallback).
+func vaultStatus(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
+	v, err := c.Vault(ctx)
+	if err != nil {
+		return err
+	}
+	if cmd.Bool("json") {
+		return render.JSON(os.Stdout, v)
+	}
+	points := "unlimited"
+	if v.Points.Total != nil {
+		avail := 0.0
+		if v.Points.Available != nil {
+			avail = *v.Points.Available
+		}
+		points = fmt.Sprintf("%.0f of %.0f available", avail, *v.Points.Total)
+	}
+	_, _ = fmt.Printf("points:  %s (%.0f funded, %.0f frozen, %.0f claimable)\n",
+		points, v.Points.Funded, v.Points.Frozen, v.Points.Claimable)
+	_, _ = fmt.Printf("content: %d vaulted, %d loading, %d expiring\n",
+		v.Content.Vaulted, v.Content.Loading, v.Content.Expiring)
+	if len(v.Pledges) > 0 {
+		rows := make([][]string, 0, len(v.Pledges))
+		for _, p := range v.Pledges {
+			rows = append(rows, []string{p.ResourceID, fmt.Sprintf("%.0f VP", p.Amount),
+				pledgeState(p), p.Name})
+		}
+		render.Table(os.Stdout, []string{"RESOURCE", "PLEDGE", "STATE", "NAME"}, rows)
+	}
+	return nil
+}
+
+// vaultInteractive is the no-subcommand entry: an interactive pledge browser
+// on a terminal, the plain status when scripted.
+func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
+	c, _, err := newClient(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	if !interactive(cmd) {
+		return vaultStatus(ctx, cmd, c)
+	}
+	in := bufio.NewReader(os.Stdin)
+	for {
+		v, err := c.Vault(ctx)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "points: %.0f funded, %.0f claimable · content: %d vaulted, %d loading\n",
+			v.Points.Funded, v.Points.Claimable, v.Content.Vaulted, v.Content.Loading)
+		if len(v.Pledges) == 0 {
+			_, _ = fmt.Fprintln(os.Stderr, "no pledges — `webtor vault pledge <resource-id>` starts one")
+			return nil
+		}
+		items := make([]picker.Item, 0, len(v.Pledges)+1)
+		for _, p := range v.Pledges {
+			items = append(items, picker.Item{Label: p.Name,
+				Detail: fmt.Sprintf("%.1f VP, %s", p.Amount, pledgeState(p))})
+		}
+		items = append(items, picker.Item{Label: "— quit —"})
+		n, err := picker.Pick(os.Stdin, os.Stderr, "Vault pledges:", items, -1)
+		if err != nil {
+			return err
+		}
+		if n == len(v.Pledges) {
+			return nil
+		}
+		p := v.Pledges[n]
+		actions := []picker.Item{
+			{Label: "watch the transfer"},
+			{Label: "withdraw the pledge"},
+			{Label: "back"},
+		}
+		a, err := picker.Pick(os.Stdin, os.Stderr, p.Name+":", actions, 0)
+		if err != nil {
+			return err
+		}
+		switch actions[a].Label {
+		case "watch the transfer":
+			if err := waitVaulted(ctx, cmd, c, p.ResourceID); err != nil {
+				return err
+			}
+		case "withdraw the pledge":
+			_, _ = fmt.Fprintf(os.Stderr, "Withdraw the pledge for %q? [y/N]: ", p.Name)
+			line, _ := in.ReadString('\n')
+			if strings.EqualFold(strings.TrimSpace(line), "y") {
+				if err := c.VaultUnpledge(ctx, p.ResourceID); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintln(os.Stderr, "pledge withdrawn")
+			}
+		}
 	}
 }
 

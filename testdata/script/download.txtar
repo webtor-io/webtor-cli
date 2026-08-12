@@ -66,8 +66,29 @@ stdout '/dl/aaa'
 ! webtor download 08ada5a7a6183aae1e09d831df6748d566095a10 nope
 stderr 'no file or directory'
 
+# interactive selection: answers piped, only the second file is taken
+stdin pick2.txt
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 -i -o picked/
+cmp picked/Sintel/poster.jpg full.bin
+! exists picked/Sintel/Sintel.mkv
+
+# interactive selection with a filter, then all of the filtered view
+stdin pickfilter.txt
+webtor -q download 08ada5a7a6183aae1e09d831df6748d566095a10 -i -o filtered/
+cmp filtered/Sintel/poster.jpg full.bin
+! exists filtered/Sintel/Sintel.mkv
+
+# the dl alias works
+webtor -q dl 08ada5a7a6183aae1e09d831df6748d566095a10 aaa -o alias/
+cmp alias/Sintel.mkv full.bin
+
 -- part/keep.txt --
 placeholder so the directory exists
+-- pick2.txt --
+2
+-- pickfilter.txt --
+poster
+all
 -- hash.txt --
 08ada5a7a6183aae1e09d831df6748d566095a10
 -- partial.bin --

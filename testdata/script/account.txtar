@@ -36,6 +36,14 @@ stderr 'pledged'
 ! webtor vault pledge 08ada5a7a6183aae1e09d831df6748d566095a10
 stderr 'conflict'
 
+# scripted no-subcommand fallbacks (and the lib/v aliases): library lists,
+# vault shows status
+webtor library add 08ada5a7a6183aae1e09d831df6748d566095a10
+webtor lib
+stdout 'Sintel'
+webtor v
+stdout 'points:'
+
 # profile
 webtor profile
 stdout 'user@example.com'

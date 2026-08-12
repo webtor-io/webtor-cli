@@ -11,12 +11,14 @@ import (
 	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
 	"github.com/webtor-io/webtor-cli/internal/exitcode"
+	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
 
 func downloadCmd() *cli.Command {
 	return &cli.Command{
 		Name:      "download",
+		Aliases:   []string{"dl"},
 		Usage:     "download files, mirroring the torrent's directory layout",
 		ArgsUsage: "<resource-id> [CONTENT-ID | PATH ...]",
 		Description: "Without content arguments the whole torrent is downloaded, file by\n" +
@@ -27,6 +29,7 @@ func downloadCmd() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "output directory (or file name for a single explicit file)"},
 			&cli.BoolFlag{Name: "stdout", Usage: "write the payload to stdout (single file only)"},
+			&cli.BoolFlag{Name: "interactive", Aliases: []string{"i"}, Usage: "pick the files from a list (answers may be piped)"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			raw, args, err := resourceAndRest(cmd, true)
@@ -73,15 +76,12 @@ func downloadCmd() *cli.Command {
 				}
 			}
 
+			all, err := listFiles(ctx, c, rid, res.FilesCount)
+			if err != nil {
+				return err
+			}
 			var files []webtor.ListItem
-			limit := min(max(res.FilesCount, 1), 1000)
-			for it, err := range c.ListAll(ctx, rid, webtor.ListOptions{Output: webtor.ListOutputFlat, Limit: limit}) {
-				if err != nil {
-					return err
-				}
-				if it.Type != webtor.ListTypeFile {
-					continue
-				}
+			for _, it := range all {
 				if len(prefixes) == 0 || matchesAny(it.Path, prefixes) {
 					files = append(files, it)
 				}
@@ -89,9 +89,40 @@ func downloadCmd() *cli.Command {
 			if len(files) == 0 {
 				return exitcode.Usagef("nothing to download (try `webtor ls %s`)", rid)
 			}
+			if cmd.Bool("interactive") && len(files) > 1 {
+				items := make([]picker.Item, len(files))
+				for i, it := range files {
+					items[i] = picker.Item{Label: strings.TrimPrefix(it.Path, "/"), Detail: render.Size(it.Size)}
+				}
+				picked, err := picker.PickMulti(os.Stdin, os.Stderr, "Which files?", items)
+				if err != nil {
+					return err
+				}
+				sel := make([]webtor.ListItem, 0, len(picked))
+				for _, n := range picked {
+					sel = append(sel, files[n])
+				}
+				files = sel
+			}
 			return downloadFiles(ctx, cmd, c, rid, files, true)
 		},
 	}
+}
+
+// listFiles returns every file of the resource, one page when the count
+// allows it (the server caps a page at 1000).
+func listFiles(ctx context.Context, c *webtor.Client, rid string, filesCount int) ([]webtor.ListItem, error) {
+	limit := min(max(filesCount, 1), 1000)
+	var files []webtor.ListItem
+	for it, err := range c.ListAll(ctx, rid, webtor.ListOptions{Output: webtor.ListOutputFlat, Limit: limit}) {
+		if err != nil {
+			return nil, err
+		}
+		if it.Type == webtor.ListTypeFile {
+			files = append(files, it)
+		}
+	}
+	return files, nil
 }
 
 func matchesAny(path string, prefixes []string) bool {

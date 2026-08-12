@@ -93,10 +93,16 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `download` | whole torrent / directories file-by-file with the torrent's layout preserved; single files by id/index/path; resume; `--stdout` |
 | `export`, `url` | resolve the short-lived export URLs / print the download URL |
 | `play` | stream into a media player (`--player vlc` default, mpv/iina work too); picks the biggest video automatically, accepts a raw magnet |
-| `library ls/add/rm/rename` | the account library (webtor.io accounts) |
-| `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion |
+| `library ls/add/rm/rename` | the account library (webtor.io accounts); bare `webtor library` on a terminal opens an interactive browser (play/download/rename/remove) |
+| `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion; bare `webtor vault` on a terminal browses pledges interactively |
 | `profile` | account profile |
 | `config init/show/use` | contexts |
+
+**Interactive touches** (terminal only — scripts keep the old behavior):
+`play` asks which file when a torrent has several (Enter = biggest video,
+typing text filters the list), `download -i` picks files from a list
+(`1,3-5`, `all`, or a filter first). Aliases: `dl` = download, `p` = play,
+`lib` = library, `v` = vault, `i` = info, `u` = url.
 
 Every command takes `--json` for machine output; errors then mirror the API's
 `{"error":{"code","message"}}` envelope on stderr. Exit codes: `2` usage,
