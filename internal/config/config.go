@@ -39,13 +39,14 @@ type Config struct {
 // shareable config file.
 type Credentials map[string]*ContextCredentials
 
-// ContextCredentials are the secrets of one context.
+// ContextCredentials are the secrets of one context. The json tags fix the
+// keyring entry's wire format; the yaml tags fix credentials.yaml's.
 type ContextCredentials struct {
 	// APIKey is the web-ui API key, the RapidAPI key, or direct's
 	// pass-through api-key, depending on the context's backend.
-	APIKey string `yaml:"api_key,omitempty"`
+	APIKey string `yaml:"api_key,omitempty" json:"api_key,omitempty"`
 	// Token is direct's pass-through JWT.
-	Token string `yaml:"token,omitempty"`
+	Token string `yaml:"token,omitempty" json:"token,omitempty"`
 }
 
 // Dir returns the configuration directory.
@@ -156,6 +157,11 @@ func Resolve(contextFlag string) (*Resolved, error) {
 	if c := creds[name]; c != nil {
 		r.Creds = *c
 	}
+	// The OS keyring is the primary secret store; the file entry (if any) is
+	// the pre-keyring legacy and the headless fallback.
+	if c := keyringGet(name); c != nil {
+		r.Creds = *c
+	}
 	// Deliberately NO WEBTOR_API_KEY override here: the env vars configure
 	// the config-less mode as a set (WEBTOR_BACKEND et al.), they do not mix
 	// into file contexts. A stray WEBTOR_API_KEY in the shell (the name is
@@ -195,12 +201,36 @@ func (r *Resolved) Backend() (webtor.Backend, error) {
 	}
 }
 
-// SetCredentials updates one context's secrets on disk, preserving the rest.
+// SetCredentials stores one context's secrets: in the OS keyring when
+// available (scrubbing any legacy file entry so the plaintext copy does not
+// linger), in credentials.yaml otherwise. Empty credentials delete the entry
+// everywhere.
 func SetCredentials(name string, c ContextCredentials) error {
 	cfg, creds, err := Load()
 	if err != nil {
 		return err
 	}
-	creds[name] = &c
+	empty := c.APIKey == "" && c.Token == ""
+	switch {
+	case empty:
+		keyringDelete(name)
+		delete(creds, name)
+	case keyringSet(name, c):
+		delete(creds, name) // migrate: the file copy is now stale plaintext
+	default:
+		creds[name] = &c
+	}
 	return Save(cfg, creds)
+}
+
+// CredentialSource reports where a context's secrets currently live:
+// "keyring", "file", or "" when nothing is stored.
+func CredentialSource(name string, fileCreds Credentials) string {
+	if keyringGet(name) != nil {
+		return "keyring"
+	}
+	if c := fileCreds[name]; c != nil && (c.APIKey != "" || c.Token != "") {
+		return "file"
+	}
+	return ""
 }

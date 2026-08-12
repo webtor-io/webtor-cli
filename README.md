@@ -70,9 +70,11 @@ $ go install github.com/webtor-io/webtor-cli@latest
 3. **Self-hosted** — point it at your own
    [rest-api](https://github.com/webtor-io/self-hosted) base URL.
 
-Configuration lives in `~/.config/webtor/` (`config.yaml` + `credentials.yaml`,
-the latter 0600). Multiple named contexts are supported: `--context`,
-`webtor config use <name>`. CI needs no files at all:
+Configuration lives in `~/.config/webtor/config.yaml`. API keys go to the OS
+keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service);
+where no keyring is available they fall back to `credentials.yaml` (0600).
+`WEBTOR_NO_KEYRING=1` forces the file. Multiple named contexts are supported:
+`--context`, `webtor config use <name>`. CI needs no files at all:
 
 ```console
 $ WEBTOR_BACKEND=webui WEBTOR_API_KEY=... webtor --json info <hash>

@@ -35,13 +35,15 @@ func configCmd() *cli.Command {
 					type shown struct {
 						config.Context `yaml:",inline" json:",inline"`
 						Key            string `yaml:"key,omitempty" json:"key,omitempty"`
+						KeySource      string `yaml:"key_source,omitempty" json:"key_source,omitempty"`
 					}
 					out := map[string]any{"current": cfg.Current, "dir": config.Dir()}
 					cxs := map[string]shown{}
 					for name, cx := range cfg.Contexts {
-						s := shown{Context: cx}
-						if c := creds[name]; c != nil && c.APIKey != "" {
-							s.Key = mask(c.APIKey)
+						s := shown{Context: cx, KeySource: config.CredentialSource(name, creds)}
+						r, err := config.Resolve(name)
+						if err == nil && r.Creds.APIKey != "" {
+							s.Key = mask(r.Creds.APIKey)
 						}
 						cxs[name] = s
 					}
@@ -52,9 +54,9 @@ func configCmd() *cli.Command {
 					_, _ = fmt.Printf("dir:     %s\ncurrent: %s\n", config.Dir(), cfg.Current)
 					var rows [][]string
 					for name, s := range cxs {
-						rows = append(rows, []string{name, string(s.Backend), s.BaseURL, s.Key})
+						rows = append(rows, []string{name, string(s.Backend), s.BaseURL, s.Key, s.KeySource})
 					}
-					render.Table(os.Stdout, []string{"CONTEXT", "BACKEND", "BASE URL", "KEY"}, rows)
+					render.Table(os.Stdout, []string{"CONTEXT", "BACKEND", "BASE URL", "KEY", "STORE"}, rows)
 					return nil
 				},
 			},

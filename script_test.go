@@ -32,8 +32,10 @@ func TestScripts(t *testing.T) {
 			env.Setenv("WEBUI_URL", webui.URL)
 			env.Setenv("RESTAPI_URL", restapi.URL)
 			env.Setenv("VALID_KEY", testapi.ValidKey)
-			// Hermetic config location inside the script's work dir.
+			// Hermetic config location inside the script's work dir, and no
+			// OS keyring — scripts must never touch the real keychain.
 			env.Setenv("XDG_CONFIG_HOME", filepath.Join(env.WorkDir, ".config"))
+			env.Setenv("WEBTOR_NO_KEYRING", "1")
 			return nil
 		},
 	})

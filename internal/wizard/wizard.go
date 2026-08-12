@@ -111,7 +111,12 @@ func Run(ctx context.Context, w IO) error {
 		Current:  "default",
 		Contexts: map[string]config.Context{"default": cx},
 	}
-	if err := config.Save(cfg, config.Credentials{"default": &creds}); err != nil {
+	if err := config.Save(cfg, config.Credentials{}); err != nil {
+		return err
+	}
+	// Through SetCredentials, so the key lands in the OS keyring when one is
+	// available and in credentials.yaml otherwise.
+	if err := config.SetCredentials("default", creds); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(w.Out, "\nSaved to %s. Try: webtor add <magnet>\n", config.Dir())
