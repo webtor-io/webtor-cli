@@ -75,6 +75,12 @@ func runPlay(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *webto
 	if err != nil {
 		return err
 	}
+	return launchWithPlayer(cmd, u, item.Path)
+}
+
+// launchWithPlayer hands the URL to the configured player and reports the
+// launch. Shared by play and the interactive file menu.
+func launchWithPlayer(cmd *cli.Command, u, path string) error {
 	player := cmd.String("player")
 	if player == "" {
 		player = "vlc"
@@ -87,11 +93,11 @@ func runPlay(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *webto
 	}
 	if cmd.Bool("json") {
 		return render.JSON(os.Stdout, map[string]string{
-			"player": player, "file": item.Path, "url": u,
+			"player": player, "file": path, "url": u,
 		})
 	}
 	if !cmd.Bool("quiet") {
-		_, _ = fmt.Fprintf(os.Stderr, "launched %s: %s\n", player, strings.TrimPrefix(item.Path, "/"))
+		_, _ = fmt.Fprintf(os.Stderr, "launched %s: %s\n", player, strings.TrimPrefix(path, "/"))
 	}
 	return nil
 }
@@ -161,13 +167,6 @@ func pickPlayable(ctx context.Context, cmd *cli.Command, c *webtor.Client, res *
 	default:
 		return &media[best], nil, nil
 	}
-}
-
-// interactive reports whether prompting the person is appropriate: a real
-// terminal on both ends and no machine-output flags.
-func interactive(cmd *cli.Command) bool {
-	return render.IsTTY(os.Stdin) && render.IsTTY(os.Stderr) &&
-		!cmd.Bool("quiet") && !cmd.Bool("json")
 }
 
 // launchPlayer starts the player detached. The command name is looked up on

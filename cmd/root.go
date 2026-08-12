@@ -12,6 +12,7 @@ import (
 	webtor "github.com/webtor-io/api-sdk-go"
 	"github.com/webtor-io/webtor-cli/internal/config"
 	"github.com/webtor-io/webtor-cli/internal/exitcode"
+	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 	"github.com/webtor-io/webtor-cli/internal/wizard"
 )
@@ -29,7 +30,9 @@ func Root() *cli.Command {
 			&cli.BoolFlag{Name: "json", Usage: "machine-readable JSON output"},
 			&cli.BoolFlag{Name: "quiet", Aliases: []string{"q"}, Usage: "no progress output"},
 			&cli.StringFlag{Name: "context", Usage: "use a named context instead of the current one"},
+			&cli.StringFlag{Name: "player", Usage: "player for the interactive menus (default vlc)"},
 		},
+		Action: rootAction,
 		Commands: []*cli.Command{
 			authCmd(),
 			addCmd(),
@@ -44,6 +47,55 @@ func Root() *cli.Command {
 			profileCmd(),
 			configCmd(),
 		},
+	}
+}
+
+// rootAction handles bare `webtor` (the top-level interactive menu on a
+// terminal, help otherwise) and `webtor <resource-id|magnet>` (the shared
+// resource menu on a terminal, the plain descriptor otherwise).
+func rootAction(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args().Slice()
+	switch {
+	case len(args) == 0 && interactive(cmd):
+		c, _, err := newClient(ctx, cmd)
+		if err != nil {
+			return err
+		}
+		err = topMenu(ctx, cmd, c)
+		if errors.Is(err, picker.ErrBack) {
+			return nil
+		}
+		return err
+	case len(args) >= 1 && magnetOrHashRe.MatchString(args[0]):
+		c, _, err := newClient(ctx, cmd)
+		if err != nil {
+			return err
+		}
+		rid := extractResourceID(args[0])
+		res, err := c.Resource(ctx, rid)
+		if webtor.IsNotFound(err) && strings.HasPrefix(args[0], "magnet:") {
+			res, err = c.AddResource(ctx, webtor.Magnet(args[0]))
+		}
+		if err != nil {
+			return err
+		}
+		if !interactive(cmd) {
+			if cmd.Bool("json") {
+				return render.JSON(os.Stdout, res)
+			}
+			printResource(res)
+			return nil
+		}
+		err = resourceMenu(ctx, cmd, c, res.ID)
+		if errors.Is(err, picker.ErrBack) {
+			return nil
+		}
+		return err
+	case len(args) > 0:
+		_ = cli.ShowAppHelp(cmd)
+		return &exitcode.UsageError{Msg: fmt.Sprintf("unknown command %q", args[0])}
+	default:
+		return cli.ShowAppHelp(cmd)
 	}
 }
 

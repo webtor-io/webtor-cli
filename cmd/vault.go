@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -138,7 +136,16 @@ func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
 	if !interactive(cmd) {
 		return vaultStatus(ctx, cmd, c)
 	}
-	in := bufio.NewReader(os.Stdin)
+	err = vaultBrowse(ctx, cmd, c)
+	if back(err) {
+		return nil
+	}
+	return err
+}
+
+// vaultBrowse lists the pledges; a picked entry opens the same shared
+// resourceMenu the library uses. Esc goes back to the caller.
+func vaultBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 	for {
 		v, err := c.Vault(ctx)
 		if err != nil {
@@ -150,43 +157,20 @@ func vaultInteractive(ctx context.Context, cmd *cli.Command) error {
 			_, _ = fmt.Fprintln(os.Stderr, "no pledges — `webtor vault pledge <resource-id>` starts one")
 			return nil
 		}
-		items := make([]picker.Item, 0, len(v.Pledges)+1)
+		items := make([]picker.Item, 0, len(v.Pledges))
 		for _, p := range v.Pledges {
 			items = append(items, picker.Item{Label: p.Name,
 				Detail: fmt.Sprintf("%.1f VP, %s", p.Amount, pledgeState(p))})
 		}
-		items = append(items, picker.Item{Label: "— quit —"})
 		n, err := picker.Pick("Vault pledges:", items, -1)
-		if err != nil {
-			return err
-		}
-		if n == len(v.Pledges) {
+		if back(err) {
 			return nil
 		}
-		p := v.Pledges[n]
-		actions := []picker.Item{
-			{Label: "watch the transfer"},
-			{Label: "withdraw the pledge"},
-			{Label: "back"},
-		}
-		a, err := picker.Pick(p.Name+":", actions, 0)
 		if err != nil {
 			return err
 		}
-		switch actions[a].Label {
-		case "watch the transfer":
-			if err := waitVaulted(ctx, cmd, c, p.ResourceID); err != nil {
-				return err
-			}
-		case "withdraw the pledge":
-			_, _ = fmt.Fprintf(os.Stderr, "Withdraw the pledge for %q? [y/N]: ", p.Name)
-			line, _ := in.ReadString('\n')
-			if strings.EqualFold(strings.TrimSpace(line), "y") {
-				if err := c.VaultUnpledge(ctx, p.ResourceID); err != nil {
-					return err
-				}
-				_, _ = fmt.Fprintln(os.Stderr, "pledge withdrawn")
-			}
+		if err := resourceMenu(ctx, cmd, c, v.Pledges[n].ResourceID); err != nil && !back(err) {
+			return err
 		}
 	}
 }
@@ -211,6 +195,11 @@ func pledgeState(p webtor.Pledge) string {
 // schedule, so failed is terminal for the attempt, not for the resource.
 func waitVaulted(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid string) error {
 	interval := cmd.Duration("poll-interval")
+	if interval <= 0 {
+		// Callers outside `vault pledge` (the interactive menus) have no
+		// poll-interval flag; zero would spin the poll loop hot.
+		interval = 15 * time.Second
+	}
 	for {
 		st, err := c.VaultPledgeStatus(ctx, rid)
 		if err != nil {

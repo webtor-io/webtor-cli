@@ -18,8 +18,12 @@ import (
 // already empty), Ctrl-C cancels. Anything that prevents raw mode falls
 // back to the numbered prompt.
 
-// ErrCancelled is returned when the person backs out (Esc / Ctrl-C).
+// ErrCancelled is returned on Ctrl-C: leave the whole program.
 var ErrCancelled = errors.New("cancelled")
+
+// ErrBack is returned on Esc (with an empty filter): go one screen back.
+// Screens without a parent treat it like ErrCancelled.
+var ErrBack = errors.New("back")
 
 var errTUIUnavailable = errors.New("tui unavailable")
 
@@ -125,9 +129,9 @@ func (s *tuiState) render(out *os.File) {
 	if len(s.visible) > s.height {
 		scroll = fmt.Sprintf(" · %d/%d", s.cursor+1, len(s.visible))
 	}
-	hint := "↑↓ move · enter select · type to filter · esc cancel" + scroll
+	hint := "↑↓ move · enter select · type to filter · esc back · ^c quit" + scroll
 	if s.multi {
-		hint = "↑↓ move · tab mark · enter confirm · type to filter · esc cancel" + scroll
+		hint = "↑↓ move · tab mark · enter confirm · type to filter · esc back · ^c quit" + scroll
 	}
 	line("\x1b[2m%s\x1b[0m", hint)
 
@@ -217,7 +221,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 					s.refilter()
 					continue
 				}
-				return nil, ErrCancelled
+				return nil, ErrBack
 			}
 			if n >= 3 && key[1] == '[' {
 				switch key[2] {

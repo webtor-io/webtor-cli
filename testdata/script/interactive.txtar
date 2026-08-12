@@ -1,0 +1,50 @@
+# The interactive screens, driven through the numbered fallback:
+# WEBTOR_FORCE_INTERACTIVE turns the menus on without a TTY, piped answers
+# steer them.
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_FORCE_INTERACTIVE=1
+
+# `webtor <resource-id>` opens the resource menu; "1" = play (the default
+# first action), then "q" quits the menu loop (silent exit 1).
+stdin play_then_quit.txt
+! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+stderr 'launched true: Sintel/Sintel.mkv'
+
+# "b" backs out of the menu without doing anything: clean exit 0
+stdin back.txt
+webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+! stderr 'launched'
+
+# the resource menu on a rest-api backend has no library/vault entries
+stdin back.txt
+webtor 08ada5a7a6183aae1e09d831df6748d566095a10
+! stderr 'library'
+! stderr 'vault'
+stderr 'browse files'
+
+# browse: enter the directory (item 1 "Sintel/"), pick the second file
+# (poster.jpg), download it, back out of everything
+stdin browse.txt
+! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+stderr 'poster.jpg:'
+exists poster.jpg
+
+# scripted (no force flag): `webtor <id>` prints the descriptor
+env WEBTOR_FORCE_INTERACTIVE=
+webtor 08ada5a7a6183aae1e09d831df6748d566095a10
+stdout 'Sintel'
+
+# unknown command still errors
+! webtor definitely-not-a-command
+stderr 'unknown command'
+
+-- play_then_quit.txt --
+1
+q
+-- back.txt --
+b
+-- browse.txt --
+2
+1
+2
+2
+q

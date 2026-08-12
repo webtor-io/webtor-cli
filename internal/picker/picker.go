@@ -21,11 +21,40 @@ type Item struct {
 	Detail string
 }
 
+// sharedStdin is the one Scanner over os.Stdin: a Scanner reads ahead, so a
+// second Scanner on the same pipe would find it drained. Every stdin-driven
+// prompt in the program must go through this.
+var sharedStdin *bufio.Scanner
+
+func scannerFor(in io.Reader) *bufio.Scanner {
+	if f, ok := in.(*os.File); ok && f == os.Stdin {
+		if sharedStdin == nil {
+			sharedStdin = bufio.NewScanner(os.Stdin)
+		}
+		return sharedStdin
+	}
+	return bufio.NewScanner(in)
+}
+
+// ReadLine prints prompt on stderr and reads one trimmed line from stdin,
+// sharing the program-wide Scanner so buffered piped answers are not lost.
+func ReadLine(prompt string) (string, error) {
+	_, _ = fmt.Fprint(os.Stderr, prompt)
+	sc := scannerFor(os.Stdin)
+	if !sc.Scan() {
+		if err := sc.Err(); err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+	return strings.TrimSpace(sc.Text()), nil
+}
+
 // prompter runs the shared read-filter loop; pick parses an answer against
 // the currently visible items (visible[i] = original index).
 func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 	pick func(answer string, visible []int) ([]int, bool)) ([]int, error) {
-	sc := bufio.NewScanner(in)
+	sc := scannerFor(in)
 	visible := make([]int, len(items))
 	for i := range items {
 		visible[i] = i
@@ -40,7 +69,7 @@ func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 				_, _ = fmt.Fprintf(out, "  %3d) %s\n", n+1, it.Label)
 			}
 		}
-		_, _ = fmt.Fprintf(out, "Choice%s (a number, or text to filter): ", def)
+		_, _ = fmt.Fprintf(out, "Choice%s (a number, text to filter, b=back, q=quit): ", def)
 		if !sc.Scan() {
 			if err := sc.Err(); err != nil {
 				return nil, err
@@ -48,6 +77,12 @@ func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 			return nil, io.EOF
 		}
 		answer := strings.TrimSpace(sc.Text())
+		switch answer {
+		case "b":
+			return nil, ErrBack
+		case "q":
+			return nil, ErrCancelled
+		}
 		if got, ok := pick(answer, visible); ok {
 			return got, nil
 		}

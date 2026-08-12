@@ -40,14 +40,18 @@ func profileCmd() *cli.Command {
 			if cmd.Bool("json") {
 				return render.JSON(os.Stdout, p)
 			}
-			render.Table(os.Stdout, nil, [][]string{
-				{"user", p.UserID},
-				{"email", p.Email},
-				{"tier", p.Tier.Name},
-				{"scopes", strings.Join(p.Scopes, ",")},
-				{"show_adult", fmt.Sprintf("%v", p.Settings.ShowAdult)},
-			})
+			printProfile(p)
 			return nil
 		},
 	}
+}
+
+func printProfile(p *webtor.ProfileResponse) {
+	render.Table(os.Stdout, nil, [][]string{
+		{"user", p.UserID},
+		{"email", p.Email},
+		{"tier", p.Tier.Name},
+		{"scopes", strings.Join(p.Scopes, ",")},
+		{"show_adult", fmt.Sprintf("%v", p.Settings.ShowAdult)},
+	})
 }

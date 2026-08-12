@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
@@ -24,7 +22,16 @@ func libraryInteractive(ctx context.Context, cmd *cli.Command) error {
 	if !interactive(cmd) {
 		return libraryPrint(ctx, cmd, c)
 	}
-	in := bufio.NewReader(os.Stdin)
+	err = libraryBrowse(ctx, cmd, c)
+	if back(err) {
+		return nil
+	}
+	return err
+}
+
+// libraryBrowse lists the library; a picked entry opens the shared
+// resourceMenu. Esc goes back to the caller.
+func libraryBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error {
 	for {
 		resp, err := c.LibraryList(ctx, webtor.LibraryListOptions{})
 		if err != nil {
@@ -34,81 +41,22 @@ func libraryInteractive(ctx context.Context, cmd *cli.Command) error {
 			_, _ = fmt.Fprintln(os.Stderr, "the library is empty — `webtor add` something first")
 			return nil
 		}
-		items := make([]picker.Item, 0, len(resp.Items)+1)
+		items := make([]picker.Item, 0, len(resp.Items))
 		for _, it := range resp.Items {
 			items = append(items, picker.Item{Label: it.Name,
 				Detail: render.Size(it.Size) + ", added " + it.AddedAt.Format("2006-01-02")})
 		}
-		items = append(items, picker.Item{Label: "— quit —"})
 		n, err := picker.Pick("Library:", items, -1)
-		if err != nil {
-			return err
-		}
-		if n == len(resp.Items) {
+		if back(err) {
 			return nil
 		}
-		entry := resp.Items[n]
-		if err := libraryEntryMenu(ctx, cmd, c, in, entry); err != nil {
-			return err
-		}
-	}
-}
-
-func libraryEntryMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, in *bufio.Reader, entry webtor.LibraryItem) error {
-	actions := []picker.Item{
-		{Label: "play"},
-		{Label: "download all files"},
-		{Label: "show files"},
-		{Label: "rename"},
-		{Label: "remove from library"},
-		{Label: "back"},
-	}
-	n, err := picker.Pick(entry.Name+":", actions, 0)
-	if err != nil {
-		return err
-	}
-	switch actions[n].Label {
-	case "play":
-		res, err := c.Resource(ctx, entry.ResourceID)
 		if err != nil {
 			return err
 		}
-		return runPlay(ctx, cmd, c, res, "")
-	case "download all files":
-		files, err := listFiles(ctx, c, entry.ResourceID, entry.FilesCount)
-		if err != nil {
+		if err := resourceMenu(ctx, cmd, c, resp.Items[n].ResourceID); err != nil && !back(err) {
 			return err
-		}
-		return downloadFiles(ctx, cmd, c, entry.ResourceID, files, true)
-	case "show files":
-		files, err := listFiles(ctx, c, entry.ResourceID, entry.FilesCount)
-		if err != nil {
-			return err
-		}
-		printItems(files)
-	case "rename":
-		_, _ = fmt.Fprintf(os.Stderr, "New name [%s]: ", entry.Name)
-		line, err := in.ReadString('\n')
-		if err != nil {
-			return err
-		}
-		if name := strings.TrimSpace(line); name != "" {
-			if _, err := c.LibraryRename(ctx, entry.ResourceID, name); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintln(os.Stderr, "renamed")
-		}
-	case "remove from library":
-		_, _ = fmt.Fprintf(os.Stderr, "Remove %q from the library? [y/N]: ", entry.Name)
-		line, _ := in.ReadString('\n')
-		if strings.EqualFold(strings.TrimSpace(line), "y") {
-			if err := c.LibraryRemove(ctx, entry.ResourceID); err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintln(os.Stderr, "removed")
 		}
 	}
-	return nil
 }
 
 // libraryPrint is the scripted no-subcommand fallback: same as `library ls`

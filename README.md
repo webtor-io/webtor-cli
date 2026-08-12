@@ -99,13 +99,17 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `config init/show/use` | contexts |
 
 **Interactive mode** (terminal only — scripts keep the old behavior): the
-pickers are arrow-key lists — ↑↓/jk move, typing filters live, Enter
-selects, Tab marks in multi-select, Esc cancels. `play` asks which file
-when a torrent has several (Enter = biggest video), `download -i` picks
-files from the list, bare `webtor library` / `webtor vault` browse the
-account. Piped answers fall back to a numbered prompt automatically;
-`WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download, `p` = play,
-`lib` = library, `v` = vault, `i` = info, `u` = url.
+screens are arrow-key lists — ↑↓/jk move, typing filters live, Enter
+selects, Tab marks in multi-select, **Esc goes one screen back, Ctrl-C
+quits**. Bare `webtor` opens the top menu (library / vault / profile);
+`webtor <resource-id>` (or a magnet) opens the torrent's action menu —
+play, browse the file tree (Enter descends, Esc ascends), download,
+library and vault actions in one place; the same menu serves entries
+picked in the library and vault browsers. `play` asks which file when a
+torrent has several (Enter = biggest video), `download -i` picks files
+from the list. Piped answers fall back to a numbered prompt (`b` = back,
+`q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,
+`p` = play, `lib` = library, `v` = vault, `i` = info, `u` = url.
 
 Every command takes `--json` for machine output; errors then mirror the API's
 `{"error":{"code","message"}}` envelope on stderr. Exit codes: `2` usage,
