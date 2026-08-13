@@ -21,3 +21,16 @@ func pick(title string, items []picker.Item, def int) (int, error) {
 		return n, err
 	}
 }
+
+// confirmScreen asks a yes/no question as a proper screen. Enter on the
+// default answers "no"; Esc also answers "no".
+func confirmScreen(question, yes, no string) (bool, error) {
+	n, err := pick(question, []picker.Item{{Label: no}, {Label: yes}}, 0)
+	if back(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}

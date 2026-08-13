@@ -202,12 +202,14 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 			}
 		case "add to library":
 			if _, err = c.LibraryAdd(ctx, rid); err == nil {
-				_, _ = fmt.Fprintln(os.Stderr, "added to the library")
+				err = picker.Show("Library:", []string{"added: " + name})
 			}
 		case "remove from library":
-			if confirm(fmt.Sprintf("Remove %q from the library?", name)) {
+			var yes bool
+			if yes, err = confirmScreen("Remove "+name+" from the library?",
+				"yes, remove", "no, keep it"); err == nil && yes {
 				if err = c.LibraryRemove(ctx, rid); err == nil {
-					_, _ = fmt.Fprintln(os.Stderr, "removed")
+					err = picker.Show("Library:", []string{"removed: " + name})
 				}
 			}
 		case "rename":
@@ -222,14 +224,22 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 			}
 		case "vault: pledge":
 			if _, err = c.VaultPledge(ctx, rid); err == nil {
-				_, _ = fmt.Fprintln(os.Stderr, "pledged — the transfer runs in the background")
+				err = picker.Show("Vault:", []string{
+					"pledged: " + name,
+					"the transfer runs in the background — watch it from this menu",
+				})
 			}
 		case "vault: watch transfer":
 			err = waitVaulted(ctx, cmd, c, rid)
 		case "vault: withdraw pledge":
-			if confirm(fmt.Sprintf("Withdraw the pledge for %q?", name)) {
+			var yes bool
+			if yes, err = confirmScreen("Withdraw the pledge for "+name+"?",
+				"yes, withdraw", "no, keep it"); err == nil && yes {
 				if err = c.VaultUnpledge(ctx, rid); err == nil {
-					_, _ = fmt.Fprintln(os.Stderr, "pledge withdrawn")
+					err = picker.Show("Vault:", []string{
+						"pledge withdrawn: " + name,
+						"the points return to your balance",
+					})
 				}
 			}
 		case "back":
@@ -239,11 +249,6 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 			return err
 		}
 	}
-}
-
-func confirm(question string) bool {
-	line, _ := picker.ReadLine(question + " [y/N]: ")
-	return strings.EqualFold(line, "y")
 }
 
 // browseRow is one entry of a browser level.

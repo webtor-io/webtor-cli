@@ -52,6 +52,20 @@ type dlTask struct {
 	errMsg atomic.Value // string
 	pause  atomic.Bool  // distinguishes pause from abort on ctx cancel
 	cancel context.CancelFunc
+	// stopped closes when the download goroutine has fully finished
+	// (including its final persist); pausing waits on it so a "paused"
+	// answer means the goroutine is actually gone.
+	stopped chan struct{}
+}
+
+// stop cancels the task (pause=true keeps it resumable) and waits for the
+// goroutine to finish.
+func (t *dlTask) stop(pauseIt bool) {
+	t.pause.Store(pauseIt)
+	t.cancel()
+	if t.stopped != nil {
+		<-t.stopped
+	}
 }
 
 func (t *dlTask) st() dlStatus { return dlStatus(t.status.Load()) }
@@ -111,6 +125,9 @@ func (m *dlManager) ensureLoaded() {
 		t := &dlTask{id: m.seq, spec: sp, total: specTotal(sp), cancel: func() {}}
 		t.status.Store(int32(dlPaused))
 		t.done.Store(onDiskBytes(sp))
+		closed := make(chan struct{})
+		close(closed)
+		t.stopped = closed
 		m.tasks = append(m.tasks, t)
 	}
 }
@@ -170,16 +187,19 @@ func (m *dlManager) persist() {
 
 // ParkRunning marks running tasks paused (called on process exit): their
 // specs are already persisted, the next session resumes from the bytes on
-// disk.
+// disk. Waits for the goroutines so the state on disk is final.
 func (m *dlManager) ParkRunning() {
 	m.mu.Lock()
+	var running []*dlTask
 	for _, t := range m.tasks {
 		if t.st() == dlRunning {
-			t.pause.Store(true)
-			t.cancel()
+			running = append(running, t)
 		}
 	}
 	m.mu.Unlock()
+	for _, t := range running {
+		t.stop(true)
+	}
 	m.persist()
 }
 
@@ -246,7 +266,9 @@ func (m *dlManager) resume(c *webtor.Client, t *dlTask) {
 func (m *dlManager) run(c *webtor.Client, t *dlTask) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.cancel = cancel
+	t.stopped = make(chan struct{})
 	body := func() {
+		defer close(t.stopped)
 		defer cancel()
 		for _, it := range t.spec.Files {
 			if err := bgDownloadOne(ctx, c, t.spec.Rid, &it, destFor(t.spec, it), t); err != nil {
@@ -401,9 +423,7 @@ func downloadTaskScreen(t *dlTask) error {
 		}
 		switch items[n].Label {
 		case "pause":
-			t.pause.Store(true)
-			t.cancel()
-			downloads.persist()
+			t.stop(true) // waits for the goroutine, which persists the state
 			return nil
 		case "resume":
 			if currentClient == nil {
@@ -413,8 +433,7 @@ func downloadTaskScreen(t *dlTask) error {
 			return nil
 		case "abort":
 			if t.st() == dlRunning {
-				t.pause.Store(false)
-				t.cancel()
+				t.stop(false)
 			} else {
 				t.status.Store(int32(dlAborted))
 			}

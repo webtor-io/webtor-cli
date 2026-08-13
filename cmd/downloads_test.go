@@ -87,9 +87,10 @@ func TestPauseResumeAcrossSessions(t *testing.T) {
 	task := tasks[0]
 
 	waitFor(t, "some progress", func() bool { return task.done.Load() > 20000 })
-	task.pause.Store(true)
-	task.cancel()
-	waitFor(t, "paused status", func() bool { return task.st() == dlPaused })
+	task.stop(true)
+	if task.st() != dlPaused {
+		t.Fatalf("status after stop = %v", task.st())
+	}
 
 	if _, err := os.Stat(dlStatePath()); err != nil {
 		t.Fatalf("state file missing after pause: %v", err)
@@ -116,6 +117,7 @@ func TestPauseResumeAcrossSessions(t *testing.T) {
 	if err != nil || fi.Size() != 200000 {
 		t.Fatalf("final file: %v size=%d", err, fi.Size())
 	}
+	<-tasks[0].stopped // the goroutine's final persist has run
 	if _, err := os.Stat(dlStatePath()); !os.IsNotExist(err) {
 		t.Fatalf("state file should be gone after completion, got %v", err)
 	}
@@ -133,8 +135,10 @@ func TestParkRunningPersists(t *testing.T) {
 	task := downloads.snapshot()[0]
 	waitFor(t, "progress", func() bool { return task.done.Load() > 10000 })
 
-	downloads.ParkRunning()
-	waitFor(t, "parked", func() bool { return task.st() == dlPaused })
+	downloads.ParkRunning() // waits for the goroutines itself
+	if task.st() != dlPaused {
+		t.Fatalf("status after park = %v", task.st())
+	}
 	b, err := os.ReadFile(dlStatePath())
 	if err != nil || !strings.Contains(string(b), "big.bin") {
 		t.Fatalf("state after park: %v %s", err, b)
@@ -152,8 +156,10 @@ func TestAbortForgets(t *testing.T) {
 		Files: []webtor.ListItem{{ID: "a", Name: "big.bin", Path: "/big.bin", Size: 200000}}})
 	task := downloads.snapshot()[0]
 	waitFor(t, "progress", func() bool { return task.done.Load() > 10000 })
-	task.cancel() // abort path: pause flag not set
-	waitFor(t, "aborted", func() bool { return task.st() == dlAborted })
+	task.stop(false) // abort path
+	if task.st() != dlAborted {
+		t.Fatalf("status after abort = %v", task.st())
+	}
 	downloads.remove(task.id)
 	if downloads.count() != 0 {
 		t.Fatal("task not removed")

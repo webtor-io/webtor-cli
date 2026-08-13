@@ -90,6 +90,20 @@ stdin scanpick.txt
 stderr 'Torrent files in scans:'
 stderr 'browse files'
 
+# library and vault actions are screens. The shared fake still holds the
+# earlier sections' state (Sintel in the library, pledged), so the order
+# is: remove (confirm screen, option 2 = yes) -> result screen; add ->
+# result screen; withdraw the pledge (confirm) -> result screen.
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+stdin libscreens.txt
+webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+stderr 'yes, remove'
+stderr 'removed: Sintel'
+stderr 'added: Sintel'
+stderr 'yes, withdraw'
+stderr 'pledge withdrawn: Sintel'
+env WEBTOR_BACKEND=direct WEBTOR_BASE_URL=$RESTAPI_URL WEBTOR_API_KEY=
+
 # Tab toggles: t opens downloads, t again returns to the menu (no exit)
 env WEBTOR_SYNC_DOWNLOADS=1
 stdin tabtoggle.txt
@@ -134,4 +148,14 @@ q
 -- tabtoggle.txt --
 t
 t
+b
+-- libscreens.txt --
+4
+2
+
+4
+
+6
+2
+
 b
