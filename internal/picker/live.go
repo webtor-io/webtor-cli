@@ -27,13 +27,15 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 	_, _ = out.WriteString(mouseOn)
 	defer func() {
 		_, _ = out.WriteString(mouseOff)
+		s.drainReports(fd, in)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}()
 	s.resize(fd)
 	s.refilter()
 
-	buf := make([]byte, 64)
+	buf := make([]byte, 4096)
+	var carry []byte // incomplete escape sequence from the previous read
 	for {
 		s.items = refresh()
 		s.refilter() // keeps the cursor on the same original index
@@ -52,10 +54,18 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 		if rerr != nil {
 			return 0, ErrCancelled
 		}
-		for _, ev := range lexEvents(buf[:n]) {
+		data := buf[:n]
+		if len(carry) > 0 {
+			data = append(carry, data...)
+			carry = nil
+		}
+		evs, rest := lexEventsCarry(data, n == len(buf))
+		carry = append(carry[:0], rest...)
+		for _, ev := range evs {
 			switch ev.kind {
 			case evDSR:
 				s.frameTop = ev.row - s.drawn
+				s.pendingDSR--
 			case evHover:
 				_ = s.setHover(ev.y)
 			case evArrow:

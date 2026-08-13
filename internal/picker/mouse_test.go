@@ -109,3 +109,68 @@ func TestHoverRenderUnderlinesRowUnderMouse(t *testing.T) {
 		t.Errorf("hover after leaving = %d, want -1", s.hover)
 	}
 }
+
+func TestStashKeepsTypedInputDropsReports(t *testing.T) {
+	pendingInput = nil
+	// A burst the terminal delivered in one read: a mouse packet, a typed
+	// line, a cursor-position reply. Only the typed text may survive.
+	stashEvents(lexEvents([]byte("\x1b[<35;5;7MNew Name\n\x1b[10;1R")))
+	line, ok := takeStashedLine()
+	if !ok || line != "New Name" {
+		t.Fatalf("stashed line = %q, ok=%v", line, ok)
+	}
+	if len(pendingInput) != 0 {
+		t.Errorf("leftovers after taking the line: %q", pendingInput)
+	}
+	// Without a newline there is no complete line to hand over yet.
+	stashEvents(lexEvents([]byte("half")))
+	if _, ok := takeStashedLine(); ok {
+		t.Error("returned an unterminated line")
+	}
+	pendingInput = nil
+}
+
+// A burst larger than the read buffer splits an escape sequence in half.
+// Feeding the halves separately must yield the same events as feeding the
+// whole thing — and must never emit the tail as text or the head as ESC,
+// which is what leaked "[50;1R" into filters and closed screens.
+func TestLexEventsCarryAcrossSplit(t *testing.T) {
+	whole := []byte("\x1b[<35;5;7M\x1b[10;1R")
+	for cut := 1; cut < len(whole); cut++ {
+		evs, carry := lexEventsCarry(whole[:cut], true)
+		evs2, carry2 := lexEventsCarry(append(append([]byte(nil), carry...), whole[cut:]...), false)
+		if len(carry2) != 0 {
+			t.Fatalf("cut %d: carry left over: %q", cut, carry2)
+		}
+		all := append(evs, evs2...)
+		var kinds []int
+		for _, e := range all {
+			kinds = append(kinds, e.kind)
+		}
+		if len(all) != 2 || kinds[0] != evHover || kinds[1] != evDSR {
+			t.Errorf("cut %d: events = %v", cut, kinds)
+		}
+		for _, e := range all {
+			if e.kind == evBytes {
+				t.Errorf("cut %d: leaked text %q", cut, e.bytes)
+			}
+		}
+	}
+}
+
+// A lone ESC keystroke (a short read) must still mean "go back", not wait
+// for a continuation that never comes.
+func TestLoneEscIsNotCarriedOnShortRead(t *testing.T) {
+	evs, carry := lexEventsCarry([]byte{0x1b}, false)
+	if len(carry) != 0 {
+		t.Fatalf("carry = %q, want none", carry)
+	}
+	if len(evs) != 1 || evs[0].kind != evBytes || evs[0].bytes[0] != 0x1b {
+		t.Fatalf("events = %+v", evs)
+	}
+	// The same byte at a full-buffer boundary is a split, so it is carried.
+	evs, carry = lexEventsCarry([]byte{0x1b}, true)
+	if len(evs) != 0 || len(carry) != 1 {
+		t.Fatalf("boundary: events=%+v carry=%q", evs, carry)
+	}
+}

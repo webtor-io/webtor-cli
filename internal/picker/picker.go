@@ -7,6 +7,7 @@ package picker
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,30 @@ type Item struct {
 // prompt in the program must go through this.
 var sharedStdin *bufio.Scanner
 
+// pendingInput holds printable bytes a TUI screen read but did not consume —
+// a terminal can deliver a whole burst in one read, so the bytes typed right
+// after the Enter that closed a screen live here until the next prompt wants
+// them. Terminal reports (cursor position, mouse) are dropped, never stashed.
+var pendingInput []byte
+
+// stashInput keeps unconsumed printable input for the next reader.
+func stashInput(b []byte) {
+	if len(b) > 0 {
+		pendingInput = append(pendingInput, b...)
+	}
+}
+
+// takeStashedLine returns a complete line from the stash, if there is one.
+func takeStashedLine() (string, bool) {
+	i := bytes.IndexByte(pendingInput, '\n')
+	if i < 0 {
+		return "", false
+	}
+	line := string(pendingInput[:i])
+	pendingInput = pendingInput[i+1:]
+	return strings.TrimSpace(line), true
+}
+
 func scannerFor(in io.Reader) *bufio.Scanner {
 	if f, ok := in.(*os.File); ok && f == os.Stdin {
 		if sharedStdin == nil {
@@ -40,6 +65,10 @@ func scannerFor(in io.Reader) *bufio.Scanner {
 // sharing the program-wide Scanner so buffered piped answers are not lost.
 func ReadLine(prompt string) (string, error) {
 	_, _ = fmt.Fprint(os.Stderr, prompt)
+	if line, ok := takeStashedLine(); ok {
+		_, _ = fmt.Fprintln(os.Stderr, line) // echo: raw mode swallowed it
+		return line, nil
+	}
 	sc := scannerFor(os.Stdin)
 	if !sc.Scan() {
 		if err := sc.Err(); err != nil {

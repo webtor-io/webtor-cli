@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -76,8 +77,22 @@ const (
 )
 
 // lexEvents splits an input chunk into events. A read can glue keystrokes,
-// mouse packets and the DSR reply together, so everything is scanned.
+// mouse packets and terminal replies together, so everything is scanned.
+//
+// The second return is a trailing incomplete escape sequence: a burst can
+// exceed the read buffer and split a sequence in half, and treating that
+// half as text would leak "[50;1R" into a filter and turn its leading ESC
+// into a "go back". Callers carry it over into the next read; lexEvents
+// alone (with a complete chunk) never leaves a carry for plain input.
 func lexEvents(buf []byte) []termEvent {
+	evs, _ := lexEventsCarry(buf, false)
+	return evs
+}
+
+// lexEventsCarry is lexEvents with the split-sequence handling. When more
+// is true the caller knows the read filled its buffer, so an unterminated
+// sequence at the end is a split rather than a lone ESC keystroke.
+func lexEventsCarry(buf []byte, more bool) ([]termEvent, []byte) {
 	var evs []termEvent
 	i := 0
 	for i < len(buf) {
@@ -90,7 +105,15 @@ func lexEvents(buf []byte) []termEvent {
 			i = j
 			continue
 		}
-		if i+1 >= len(buf) || buf[i+1] != '[' {
+		if i+1 >= len(buf) {
+			if more {
+				return evs, buf[i:] // ESC alone at a buffer boundary
+			}
+			evs = append(evs, termEvent{kind: evBytes, bytes: []byte{0x1b}})
+			i++
+			continue
+		}
+		if buf[i+1] != '[' {
 			evs = append(evs, termEvent{kind: evBytes, bytes: []byte{0x1b}})
 			i++
 			continue
@@ -100,6 +123,9 @@ func lexEvents(buf []byte) []termEvent {
 			j++
 		}
 		if j >= len(buf) {
+			if more {
+				return evs, buf[i:] // CSI cut in half by the read boundary
+			}
 			evs = append(evs, termEvent{kind: evBytes, bytes: []byte{0x1b}})
 			break
 		}
@@ -135,7 +161,7 @@ func lexEvents(buf []byte) []termEvent {
 		}
 		i = j + 1
 	}
-	return evs
+	return evs, nil
 }
 
 func tuiAvailable() bool {
@@ -157,6 +183,81 @@ type tuiState struct {
 	drawn    int // lines drawn by the previous frame
 	frameTop int // terminal row of the frame's first line (0 = unknown)
 	hover    int // visible index under the mouse, -1 = none
+	// pendingDSR counts cursor-position queries still awaiting a reply.
+	// The replies arrive asynchronously on stdin, so a screen that leaves
+	// with queries outstanding would hand them to whoever reads next — the
+	// filter of the following screen, or a plain prompt that echoes them.
+	pendingDSR int
+}
+
+// drainReports consumes terminal replies still in flight (cursor-position
+// reports, trailing mouse packets) before the raw mode is dropped. Runs only
+// while queries are outstanding, and gives up quickly so leaving a screen
+// never feels sticky.
+func (s *tuiState) drainReports(fd int, in *os.File) {
+	if s.pendingDSR <= 0 {
+		return
+	}
+	if !setPollRead(fd) { // VMIN=0/VTIME=1: reads return within ~100ms
+		return
+	}
+	buf := make([]byte, 4096)
+	var carry []byte
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for s.pendingDSR > 0 && time.Now().Before(deadline) {
+		n, err := in.Read(buf)
+		if err != nil {
+			break
+		}
+		data := buf[:n]
+		if len(carry) > 0 {
+			data = append(carry, data...)
+		}
+		evs, rest := lexEventsCarry(data, n == len(buf))
+		carry = append(carry[:0], rest...)
+		for _, ev := range evs {
+			if ev.kind == evDSR {
+				s.pendingDSR--
+			}
+		}
+		stashEvents(evs)
+	}
+	flushInput(fd, in)
+}
+
+// flushInput takes whatever the terminal has already queued and sorts it:
+// terminal reports (mouse packets, cursor-position replies) are dropped —
+// they would otherwise surface in the next screen's filter or echo into a
+// plain prompt — while printable bytes are stashed for the next reader, so
+// input typed during the handover is not lost either.
+func flushInput(fd int, in *os.File) {
+	if !setInstantRead(fd) {
+		return
+	}
+	buf := make([]byte, 4096)
+	var carry []byte
+	for i := 0; i < 8; i++ {
+		n, err := in.Read(buf)
+		if err != nil || n == 0 {
+			return
+		}
+		data := buf[:n]
+		if len(carry) > 0 {
+			data = append(carry, data...)
+		}
+		evs, rest := lexEventsCarry(data, n == len(buf))
+		carry = append(carry[:0], rest...)
+		stashEvents(evs)
+	}
+}
+
+// stashEvents keeps the printable parts of already-decoded events.
+func stashEvents(evs []termEvent) {
+	for _, ev := range evs {
+		if ev.kind == evBytes {
+			stashInput(ev.bytes)
+		}
+	}
 }
 
 // setHover updates the hovered row from a motion event; reports whether a
@@ -345,8 +446,12 @@ func (s *tuiState) render(out *os.File) {
 
 	s.drawn = 2 + max(end-s.offset, 1) // header + rows (or the empty note) + hint
 	// Ask where the cursor ended up — the reply (ESC[row;colR) arrives on
-	// stdin and pins the frame's absolute position for click mapping.
-	b.WriteString("\x1b[6n")
+	// stdin and pins the frame's absolute position for click mapping. One
+	// query in flight at a time: the answer only moves when the frame does.
+	if s.pendingDSR == 0 {
+		b.WriteString("\x1b[6n")
+		s.pendingDSR++
+	}
 	_, _ = out.WriteString(b.String())
 }
 
@@ -376,6 +481,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 	_, _ = out.WriteString(mouseOn)
 	restore := func() {
 		_, _ = out.WriteString(mouseOff)
+		s.drainReports(fd, in)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}
@@ -409,17 +515,34 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 		return []int{s.visible[vi]}, nil
 	}
 
-	buf := make([]byte, 128)
+	buf := make([]byte, 4096)
+	var carry []byte // incomplete escape sequence from the previous read
 	for {
 		s.render(out)
 		n, err := in.Read(buf)
 		if err != nil || n == 0 {
 			return nil, ErrCancelled
 		}
-		for _, ev := range lexEvents(buf[:n]) {
+		data := buf[:n]
+		if len(carry) > 0 {
+			data = append(carry, data...)
+			carry = nil
+		}
+		evs, rest := lexEventsCarry(data, n == len(buf))
+		carry = append(carry[:0], rest...)
+		for ei := 0; ei < len(evs); ei++ {
+			ev := evs[ei]
+			// leave hands back whatever the burst still holds: bytes typed
+			// after the key that closes this screen belong to the next
+			// reader, not to the void.
+			leave := func(rest []byte) {
+				stashInput(rest)
+				stashEvents(evs[ei+1:])
+			}
 			switch ev.kind {
 			case evDSR:
 				s.frameTop = ev.row - s.drawn
+				s.pendingDSR--
 			case evHover:
 				_ = s.setHover(ev.y) // next render shows it
 			case evArrow:
@@ -438,6 +561,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 						oi := s.visible[vi]
 						s.checked[oi] = !s.checked[oi]
 					} else {
+						leave(nil)
 						return confirmAt(vi)
 					}
 				}
@@ -451,8 +575,10 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 						if len(s.visible) == 0 {
 							continue
 						}
+						leave(ev.bytes[bi+1:])
 						return confirmAt(s.cursor)
 					case c == '\t' && !multi:
+						leave(ev.bytes[bi+1:])
 						return nil, ErrTab
 					case c == '\t' && multi:
 						if len(s.visible) > 0 {
@@ -475,6 +601,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 							s.refilter()
 							continue
 						}
+						leave(ev.bytes[bi+1:])
 						return nil, ErrBack
 					case s.filter == "" && (c == 'j' || c == 'k'):
 						if c == 'j' {
@@ -544,6 +671,7 @@ func Show(title string, lines []string) error {
 	_, _ = out.WriteString(mouseOn)
 	defer func() {
 		_, _ = out.WriteString(mouseOff)
+		flushInput(fd, in)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}()
