@@ -24,9 +24,24 @@ import (
 func termTitle(s string) string { return "\x1b]0;" + s + "\x07" }
 
 // termProgress drives the tab/taskbar indicator (OSC 9;4): state 0 clears
-// it, 1 shows a determinate bar, 3 an indeterminate one.
+// it, 1 shows a determinate bar. The indeterminate state (3) is never used:
+// it renders as a spinner that says nothing and, if anything ever fails to
+// clear it, looks like the terminal is stuck forever.
 func termProgress(state, percent int) string {
+	if os.Getenv("WEBTOR_NO_PROGRESS") != "" {
+		return ""
+	}
 	return fmt.Sprintf("\x1b]9;4;%d;%d\x07", state, percent)
+}
+
+// ClearTermProgress wipes the tab indicator. Called on startup as well as
+// on exit: a previous run that was killed outright cannot clean up after
+// itself, so the next one does it.
+func ClearTermProgress() {
+	if !render.IsTTY(os.Stderr) {
+		return
+	}
+	picker.LockedWrite(os.Stderr, termProgress(0, 0))
 }
 
 type statusReporter struct {
@@ -52,9 +67,9 @@ func startStatusReporter(quiet bool) *statusReporter {
 		for {
 			select {
 			case <-r.stop:
-				if dirty {
-					picker.LockedWrite(os.Stderr, termProgress(0, 0)+termTitle(""))
-				}
+				// Unconditional: clearing an indicator nobody set is free,
+				// leaving one behind is not.
+				picker.LockedWrite(os.Stderr, termProgress(0, 0)+termTitle(""))
 				return
 			case <-t.C:
 				if s, ok := downloadStatus(); ok {
@@ -105,9 +120,9 @@ func downloadStatus() (string, bool) {
 		return termProgress(1, pct) +
 			termTitle(fmt.Sprintf("↓ %d%% · %s · webtor", pct, trimTitle(title))), true
 	}
-	// No known size yet: an indeterminate bar and the bytes so far.
-	return termProgress(3, 0) +
-		termTitle(fmt.Sprintf("↓ %s · %s · webtor", render.Size(done), trimTitle(title))), true
+	// No known size yet: the title carries the bytes, and the indicator is
+	// left alone rather than spun.
+	return termTitle(fmt.Sprintf("↓ %s · %s · webtor", render.Size(done), trimTitle(title))), true
 }
 
 // trimTitle keeps titles short enough to survive a narrow tab.

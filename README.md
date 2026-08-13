@@ -124,7 +124,7 @@ downloads at a time — starting it again shows the running task instead
 of queueing a rival. While a download runs the terminal itself reports
 it: the tab/window title carries the percentage, and terminals that
 support the progress escape (Windows Terminal, WezTerm, Ghostty,
-ConEmu) draw a bar on the tab. A desktop notification announces each
+ConEmu) draw a bar on the tab (`WEBTOR_NO_PROGRESS=1` leaves the tab alone). A desktop notification announces each
 finished or failed download (`WEBTOR_NO_NOTIFY=1` turns them off); a task opens its own pause / resume / abort screen. Paused
 downloads persist across sessions (running ones are parked as paused on
 exit) and resume from the bytes on disk. `download -i` picks files from the list. Piped answers fall back to a numbered prompt (`b` = back,

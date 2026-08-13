@@ -108,6 +108,9 @@ func Main(ctx context.Context, args []string) int {
 	// The terminal reports download activity on its own tab while the CLI
 	// runs; parsing the flags here would need the full parser, so the two
 	// machine-output flags are read straight from the arguments.
+	// A run that was killed outright could not clean up its tab indicator;
+	// clearing on startup makes the next run repair it.
+	ClearTermProgress()
 	status := startStatusReporter(hasFlag(args, "--json", "-q", "--quiet"))
 	err := root.Run(ctx, args)
 	status.Stop()

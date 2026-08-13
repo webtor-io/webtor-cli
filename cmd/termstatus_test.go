@@ -53,13 +53,28 @@ func TestDownloadStatusEscapes(t *testing.T) {
 		t.Errorf("aggregate status wrong: %q", s)
 	}
 
-	// Unknown size: indeterminate bar, bytes instead of a percentage.
+	// Unknown size: the title carries the bytes and the indicator is left
+	// alone — a spinner conveys nothing and looks stuck if it ever lingers.
 	unknown := fakeTask("c", 2048, 0, dlRunning)
 	unknown.total = 0
 	downloads.tasks = []*dlTask{unknown}
 	s, _ = downloadStatus()
-	if !strings.Contains(s, "\x1b]9;4;3;0\x07") || !strings.Contains(s, "2.0 kB") {
-		t.Errorf("indeterminate status wrong: %q", s)
+	if !strings.Contains(s, "2.0 kB") {
+		t.Errorf("byte count missing: %q", s)
+	}
+	if strings.Contains(s, "\x1b]9;4") {
+		t.Errorf("indicator touched without a known size: %q", s)
+	}
+
+	// The opt-out silences the indicator but keeps the title informative.
+	t.Setenv("WEBTOR_NO_PROGRESS", "1")
+	downloads.tasks = []*dlTask{fakeTask("d", 50, 100, dlRunning)}
+	s, _ = downloadStatus()
+	if strings.Contains(s, "\x1b]9;4") {
+		t.Errorf("WEBTOR_NO_PROGRESS ignored: %q", s)
+	}
+	if !strings.Contains(s, "↓ 50%") {
+		t.Errorf("title lost with the indicator off: %q", s)
 	}
 
 	downloads = dlManager{}
