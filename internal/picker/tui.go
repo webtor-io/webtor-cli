@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -47,6 +48,18 @@ func extraHint() string {
 }
 
 var errTUIUnavailable = errors.New("tui unavailable")
+
+// outMu serializes writes to the terminal. Frames are multi-byte escape
+// sequences; a status update from another goroutine landing in the middle
+// of one would corrupt both.
+var outMu sync.Mutex
+
+// LockedWrite writes to the terminal without interleaving with a frame.
+func LockedWrite(out *os.File, s string) {
+	outMu.Lock()
+	defer outMu.Unlock()
+	_, _ = out.WriteString(s)
+}
 
 // Mouse reporting: presses and wheel in SGR encoding (coordinates survive
 // wide terminals). Enabled only while a picker screen is on.
@@ -478,7 +491,9 @@ func (s *tuiState) render(out *os.File) {
 		b.WriteString("\x1b[6n")
 		s.pendingDSR++
 	}
+	outMu.Lock()
 	_, _ = out.WriteString(b.String())
+	outMu.Unlock()
 }
 
 // wipe erases the frame drawn by the previous render, so leaving a screen

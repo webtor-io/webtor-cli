@@ -104,7 +104,12 @@ func rootAction(ctx context.Context, cmd *cli.Command) error {
 func Main(ctx context.Context, args []string) int {
 	picker.ExtraHint = downloadsHint
 	root := Root()
+	// The terminal reports download activity on its own tab while the CLI
+	// runs; parsing the flags here would need the full parser, so the two
+	// machine-output flags are read straight from the arguments.
+	status := startStatusReporter(hasFlag(args, "--json", "-q", "--quiet"))
 	err := root.Run(ctx, args)
+	status.Stop()
 	// Quitting parks running background downloads as paused — the next
 	// session resumes them from the bytes on disk.
 	downloads.ParkRunning()
@@ -122,6 +127,17 @@ func Main(ctx context.Context, args []string) int {
 		}
 	}
 	return code
+}
+
+func hasFlag(args []string, names ...string) bool {
+	for _, a := range args {
+		for _, n := range names {
+			if a == n {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // currentCfg is the configuration newClient resolved for this invocation;
