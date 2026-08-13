@@ -30,6 +30,7 @@ stdin browse.txt
 ! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
 stderr 'Downloads:'
 stderr 'done ·'
+stderr 'clear'
 exists poster.jpg
 env WEBTOR_SYNC_DOWNLOADS=
 
@@ -108,8 +109,10 @@ q
 2
 2
 2
-4
+t
 1
+1
+
 q
 -- scans/one.torrent --
 d8:announce7:someurl4:infod6:lengthi18e4:name10:Sintel.mkv12:piece lengthi16384e6:pieces20:xxxxxxxxxxxxxxxxxxxxee

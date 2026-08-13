@@ -102,8 +102,12 @@ func rootAction(ctx context.Context, cmd *cli.Command) error {
 
 // Main runs the CLI and returns the process exit code.
 func Main(ctx context.Context, args []string) int {
+	picker.ExtraHint = downloadsHint
 	root := Root()
 	err := root.Run(ctx, args)
+	// Quitting parks running background downloads as paused — the next
+	// session resumes them from the bytes on disk.
+	downloads.ParkRunning()
 	code, msg := exitcode.Classify(err)
 	if code != exitcode.OK && msg != "" {
 		if root.Bool("json") {
@@ -124,6 +128,10 @@ func Main(ctx context.Context, args []string) int {
 // download-path helpers read DownloadDir from it. A CLI process serves one
 // invocation, so a package variable is acceptable plumbing here.
 var currentCfg *config.Resolved
+
+// currentClient is the SDK client of this invocation — the downloads screen
+// resumes paused tasks through it.
+var currentClient *webtor.Client
 
 // newClient resolves the configuration (running the first-run wizard when
 // appropriate) and builds the SDK client.
@@ -150,5 +158,6 @@ func newClient(ctx context.Context, cmd *cli.Command) (*webtor.Client, *config.R
 	if err != nil {
 		return nil, nil, err
 	}
+	currentClient = c
 	return c, r, nil
 }

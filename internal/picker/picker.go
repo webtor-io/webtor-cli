@@ -69,7 +69,7 @@ func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 				_, _ = fmt.Fprintf(out, "  %3d) %s\n", n+1, it.Label)
 			}
 		}
-		_, _ = fmt.Fprintf(out, "Choice%s (a number, text to filter, b=back, q=quit): ", def)
+		_, _ = fmt.Fprintf(out, "Choice%s (a number, text to filter, b=back, t=downloads, q=quit): ", def)
 		if !sc.Scan() {
 			if err := sc.Err(); err != nil {
 				return nil, err
@@ -80,6 +80,8 @@ func prompt(in io.Reader, out io.Writer, title string, items []Item, def string,
 		switch answer {
 		case "b":
 			return nil, ErrBack
+		case "t":
+			return nil, ErrTab
 		case "q":
 			return nil, ErrCancelled
 		}

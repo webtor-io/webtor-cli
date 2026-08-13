@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,47 +12,67 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/urfave/cli/v3"
 	webtor "github.com/webtor-io/api-sdk-go"
+	"github.com/webtor-io/webtor-cli/internal/config"
 	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
 
-// Background downloads for the interactive mode: starting one returns to the
-// menu immediately, every menu grows a "downloads" entry while tasks exist,
-// and the downloads screen shows live progress with per-task cancel.
+// Background downloads for the interactive mode. Tab opens the downloads
+// screen from any picker; a task opens its own action screen with pause /
+// resume / abort. Paused tasks persist in downloads.json next to the config
+// and reappear in the next session; running tasks are parked as paused on
+// exit, so quitting never silently loses progress.
 
 type dlStatus int32
 
 const (
 	dlRunning dlStatus = iota
+	dlPaused
 	dlDone
 	dlFailed
-	dlCancelled
+	dlAborted
 )
+
+// dlSpec is everything needed to (re)start a task — also the on-disk format.
+type dlSpec struct {
+	Rid    string            `json:"rid"`
+	Label  string            `json:"label"`
+	Layout bool              `json:"layout"`
+	Base   string            `json:"base"` // output directory at start time
+	Files  []webtor.ListItem `json:"files"`
+}
 
 type dlTask struct {
 	id     int
-	label  string
+	spec   dlSpec
 	total  int64
 	done   atomic.Int64
 	status atomic.Int32
-	errMsg atomic.Value // string, set on failure
+	errMsg atomic.Value // string
+	pause  atomic.Bool  // distinguishes pause from abort on ctx cancel
 	cancel context.CancelFunc
 }
 
+func (t *dlTask) st() dlStatus { return dlStatus(t.status.Load()) }
+
 func (t *dlTask) detail() string {
-	switch dlStatus(t.status.Load()) {
+	pct := ""
+	if t.total > 0 {
+		pct = fmt.Sprintf("%d%% · %s of %s", t.done.Load()*100/t.total,
+			render.Size(t.done.Load()), render.Size(t.total))
+	} else {
+		pct = render.Size(t.done.Load())
+	}
+	switch t.st() {
 	case dlRunning:
-		if t.total > 0 {
-			return fmt.Sprintf("%d%% · %s of %s", t.done.Load()*100/t.total,
-				render.Size(t.done.Load()), render.Size(t.total))
-		}
-		return render.Size(t.done.Load())
+		return pct
+	case dlPaused:
+		return "paused · " + pct
 	case dlDone:
 		return "done · " + render.Size(t.total)
-	case dlCancelled:
-		return "cancelled"
+	case dlAborted:
+		return "aborted"
 	default:
 		msg, _ := t.errMsg.Load().(string)
 		return "failed: " + msg
@@ -58,19 +80,115 @@ func (t *dlTask) detail() string {
 }
 
 type dlManager struct {
-	mu    sync.Mutex
-	tasks []*dlTask
-	seq   int
+	mu     sync.Mutex
+	tasks  []*dlTask
+	seq    int
+	loaded bool
 }
 
 var downloads dlManager
+
+func dlStatePath() string { return filepath.Join(config.Dir(), "downloads.json") }
+
+// ensureLoaded brings paused tasks from the previous session into the list.
+func (m *dlManager) ensureLoaded() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.loaded {
+		return
+	}
+	m.loaded = true
+	b, err := os.ReadFile(dlStatePath())
+	if err != nil {
+		return
+	}
+	var specs []dlSpec
+	if json.Unmarshal(b, &specs) != nil {
+		return
+	}
+	for _, sp := range specs {
+		m.seq++
+		t := &dlTask{id: m.seq, spec: sp, total: specTotal(sp), cancel: func() {}}
+		t.status.Store(int32(dlPaused))
+		t.done.Store(onDiskBytes(sp))
+		m.tasks = append(m.tasks, t)
+	}
+}
+
+func specTotal(sp dlSpec) int64 {
+	var n int64
+	for _, f := range sp.Files {
+		n += f.Size
+	}
+	return n
+}
+
+// onDiskBytes counts what a paused task already has on disk.
+func onDiskBytes(sp dlSpec) int64 {
+	var n int64
+	for _, f := range sp.Files {
+		if st, err := os.Stat(destFor(sp, f)); err == nil && st.Size() <= f.Size {
+			n += st.Size()
+		}
+	}
+	return n
+}
+
+func destFor(sp dlSpec, f webtor.ListItem) string {
+	if sp.Layout {
+		return filepath.Join(sp.Base, filepath.FromSlash(strings.TrimPrefix(f.Path, "/")))
+	}
+	name := f.Name
+	if name == "" {
+		name = filepath.Base(f.Path)
+	}
+	if sp.Base == "" {
+		return name
+	}
+	return filepath.Join(sp.Base, name)
+}
+
+// persist writes every pause-worthy task (paused + running) to disk.
+func (m *dlManager) persist() {
+	m.mu.Lock()
+	var specs []dlSpec
+	for _, t := range m.tasks {
+		if s := t.st(); s == dlPaused || s == dlRunning {
+			specs = append(specs, t.spec)
+		}
+	}
+	m.mu.Unlock()
+	if len(specs) == 0 {
+		_ = os.Remove(dlStatePath())
+		return
+	}
+	if b, err := json.Marshal(specs); err == nil {
+		_ = os.MkdirAll(config.Dir(), 0o755)
+		_ = os.WriteFile(dlStatePath(), b, 0o644)
+	}
+}
+
+// ParkRunning marks running tasks paused (called on process exit): their
+// specs are already persisted, the next session resumes from the bytes on
+// disk.
+func (m *dlManager) ParkRunning() {
+	m.mu.Lock()
+	for _, t := range m.tasks {
+		if t.st() == dlRunning {
+			t.pause.Store(true)
+			t.cancel()
+		}
+	}
+	m.mu.Unlock()
+	m.persist()
+}
 
 func (m *dlManager) running() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
 	for _, t := range m.tasks {
-		if dlStatus(t.status.Load()) == dlRunning {
+		if t.st() == dlRunning {
 			n++
 		}
 	}
@@ -91,65 +209,71 @@ func (m *dlManager) snapshot() []*dlTask {
 
 func (m *dlManager) remove(id int) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for i, t := range m.tasks {
 		if t.id == id {
 			m.tasks = append(m.tasks[:i], m.tasks[i+1:]...)
-			return
+			break
 		}
 	}
+	m.mu.Unlock()
+	m.persist()
 }
 
-// start launches a background download of files (torrent layout when layout)
-// and returns immediately. The task's progress is read by the downloads
-// screen; ordinary API errors mark the task failed instead of surfacing.
-func (m *dlManager) start(cmd *cli.Command, c *webtor.Client, rid, label string, files []webtor.ListItem, layout bool) {
-	var total int64
-	for _, f := range files {
-		total += f.Size
-	}
-	ctx, cancel := context.WithCancel(context.Background())
+// start launches a background download and returns immediately.
+func (m *dlManager) start(c *webtor.Client, sp dlSpec) {
+	m.ensureLoaded()
 	m.mu.Lock()
 	m.seq++
-	t := &dlTask{id: m.seq, label: label, total: total, cancel: cancel}
+	t := &dlTask{id: m.seq, spec: sp, total: specTotal(sp)}
 	m.tasks = append(m.tasks, t)
 	m.mu.Unlock()
+	m.persist()
+	m.run(c, t)
+}
 
-	base := outputBase(cmd)
-	run := func() {
+// resume restarts a paused task; the on-disk bytes are picked up by the
+// per-file offset logic.
+func (m *dlManager) resume(c *webtor.Client, t *dlTask) {
+	if t.st() != dlPaused {
+		return
+	}
+	t.pause.Store(false)
+	t.done.Store(0)
+	t.status.Store(int32(dlRunning))
+	m.run(c, t)
+}
+
+func (m *dlManager) run(c *webtor.Client, t *dlTask) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.cancel = cancel
+	body := func() {
 		defer cancel()
-		for _, it := range files {
-			var dest string
-			if layout {
-				dest = filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(it.Path, "/")))
-			} else {
-				name := it.Name
-				if name == "" {
-					name = filepath.Base(it.Path)
-				}
-				dest = destPath(cmd, name)
-			}
-			if err := bgDownloadOne(ctx, c, rid, &it, dest, t); err != nil {
-				if ctx.Err() != nil {
-					t.status.Store(int32(dlCancelled))
-				} else {
+		for _, it := range t.spec.Files {
+			if err := bgDownloadOne(ctx, c, t.spec.Rid, &it, destFor(t.spec, it), t); err != nil {
+				switch {
+				case ctx.Err() != nil && t.pause.Load():
+					t.status.Store(int32(dlPaused))
+				case ctx.Err() != nil:
+					t.status.Store(int32(dlAborted))
+				default:
 					t.errMsg.Store(strings.TrimPrefix(err.Error(), "webtor: "))
 					t.status.Store(int32(dlFailed))
 				}
+				m.persist()
 				return
 			}
 		}
 		t.status.Store(int32(dlDone))
+		m.persist()
 	}
 	if os.Getenv("WEBTOR_SYNC_DOWNLOADS") != "" {
-		// Test hook: piped-answer scripts need deterministic completion.
-		run()
+		body() // test hook: piped-answer scripts need deterministic completion
 		return
 	}
-	go run()
+	go body()
 }
 
-// bgDownloadOne is downloadOne without any terminal output: progress goes to
+// bgDownloadOne downloads one file with no terminal output: progress goes to
 // the task counters, complete local files count instantly, partial ones
 // resume.
 func bgDownloadOne(ctx context.Context, c *webtor.Client, rid string, item *webtor.ListItem, dest string, t *dlTask) error {
@@ -192,31 +316,32 @@ func (w taskCounter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// downloadsLabel is the menu entry text while tasks exist, or "" when the
-// entry should not be shown.
-func downloadsLabel() string {
+// downloadsHint feeds the pickers' status line: "tab: downloads (2 active)".
+func downloadsHint() string {
+	downloads.ensureLoaded()
 	total := downloads.count()
 	if total == 0 {
 		return ""
 	}
 	if r := downloads.running(); r > 0 {
-		return fmt.Sprintf("downloads (%d active)", r)
+		return fmt.Sprintf("tab: downloads (%d active)", r)
 	}
-	return "downloads (finished)"
+	return fmt.Sprintf("tab: downloads (%d)", total)
 }
 
-// downloadsScreen is the live progress list: Enter cancels a running task
-// (confirmed) or clears a finished one, Esc goes back.
+// downloadsScreen is the live progress list; a picked task opens its action
+// screen. Esc goes back.
 func downloadsScreen() error {
+	downloads.ensureLoaded()
 	for {
 		tasks := downloads.snapshot()
 		if len(tasks) == 0 {
-			return nil
+			return picker.Show("Downloads:", []string{"nothing here — downloads you start land on this screen"})
 		}
 		n, err := picker.PickLive("Downloads:", func() []picker.Item {
 			items := make([]picker.Item, 0, len(downloads.snapshot()))
 			for _, t := range downloads.snapshot() {
-				items = append(items, picker.Item{Label: t.label, Detail: t.detail()})
+				items = append(items, picker.Item{Label: t.spec.Label, Detail: t.detail()})
 			}
 			return items
 		})
@@ -230,13 +355,72 @@ func downloadsScreen() error {
 		if n >= len(tasks) {
 			continue
 		}
-		t := tasks[n]
-		if dlStatus(t.status.Load()) == dlRunning {
-			if confirm(fmt.Sprintf("Cancel downloading %q?", t.label)) {
-				t.cancel()
-			}
-			continue
+		if err := downloadTaskScreen(tasks[n]); err != nil && !back(err) {
+			return err
 		}
-		downloads.remove(t.id)
+	}
+}
+
+// downloadTaskScreen is the per-task action menu: pause / resume / abort,
+// or clear for a finished task.
+func downloadTaskScreen(t *dlTask) error {
+	for {
+		var items []picker.Item
+		switch t.st() {
+		case dlRunning:
+			items = []picker.Item{
+				{Label: "pause", Detail: "keep the partial file, resume later"},
+				{Label: "abort", Detail: "stop and forget (partial file stays on disk)"},
+				{Label: "back"},
+			}
+		case dlPaused:
+			items = []picker.Item{
+				{Label: "resume", Detail: "continue from " + render.Size(onDiskBytes(t.spec))},
+				{Label: "abort", Detail: "stop and forget (partial file stays on disk)"},
+				{Label: "back"},
+			}
+		default:
+			items = []picker.Item{
+				{Label: "clear", Detail: "remove from the list"},
+				{Label: "back"},
+			}
+		}
+		n, err := picker.Pick(t.spec.Label+" — "+t.detail()+":", items, 0)
+		if back(err) {
+			return nil
+		}
+		if errors.Is(err, picker.ErrTab) {
+			continue // already inside the downloads flow
+		}
+		if err != nil {
+			return err
+		}
+		switch items[n].Label {
+		case "pause":
+			t.pause.Store(true)
+			t.cancel()
+			downloads.persist()
+			return nil
+		case "resume":
+			if currentClient == nil {
+				return fmt.Errorf("no API client in this session")
+			}
+			downloads.resume(currentClient, t)
+			return nil
+		case "abort":
+			if t.st() == dlRunning {
+				t.pause.Store(false)
+				t.cancel()
+			} else {
+				t.status.Store(int32(dlAborted))
+			}
+			downloads.remove(t.id)
+			return nil
+		case "clear":
+			downloads.remove(t.id)
+			return nil
+		case "back":
+			return nil
+		}
 	}
 }

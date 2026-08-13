@@ -26,6 +26,25 @@ var ErrCancelled = errors.New("cancelled")
 // Screens without a parent treat it like ErrCancelled.
 var ErrBack = errors.New("back")
 
+// ErrTab is returned when Tab is pressed on a single-select screen — the
+// application-wide "switch to the downloads screen" gesture. Multi-select
+// keeps Tab for marking.
+var ErrTab = errors.New("tab")
+
+// ExtraHint, when set, contributes an application status fragment to every
+// picker's hint line (e.g. "tab: downloads (2 active)").
+var ExtraHint func() string
+
+func extraHint() string {
+	if ExtraHint == nil {
+		return ""
+	}
+	if h := ExtraHint(); h != "" {
+		return " · " + h
+	}
+	return ""
+}
+
 var errTUIUnavailable = errors.New("tui unavailable")
 
 func tuiAvailable() bool {
@@ -164,7 +183,7 @@ func (s *tuiState) render(out *os.File) {
 	if len(s.visible) > s.height {
 		scroll = fmt.Sprintf(" · %d/%d", s.cursor+1, len(s.visible))
 	}
-	hint := "↑↓ move · enter select · type to filter · esc back · ^c quit" + scroll
+	hint := "↑↓ move · enter select · type to filter · esc back · ^c quit" + extraHint() + scroll
 	if s.multi {
 		hint = "↑↓ move · tab mark · enter confirm · type to filter · esc back · ^c quit" + scroll
 	}
@@ -245,6 +264,8 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 				return picked, nil
 			}
 			return []int{s.visible[s.cursor]}, nil
+		case key[0] == '\t' && !multi:
+			return nil, ErrTab
 		case key[0] == '\t' && multi:
 			if len(s.visible) > 0 {
 				oi := s.visible[s.cursor]

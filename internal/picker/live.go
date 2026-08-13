@@ -78,6 +78,8 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 				}
 				s.clamp()
 			}
+		case key[0] == '\t':
+			return 0, ErrTab
 		case key[0] == 'j':
 			s.cursor++
 			if s.cursor > len(s.visible)-1 {

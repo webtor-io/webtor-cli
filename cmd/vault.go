@@ -163,12 +163,7 @@ func vaultBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error 
 			items = append(items, picker.Item{Label: p.Name,
 				Detail: fmt.Sprintf("%.1f VP, %s", p.Amount, pledgeState(p))})
 		}
-		dlIndex := -1
-		if dl := downloadsLabel(); dl != "" {
-			items = append(items, picker.Item{Label: dl, Detail: "watch progress, cancel"})
-			dlIndex = len(items) - 1
-		}
-		n, err := picker.Pick("Vault pledges:", items, min(last, len(items)-1))
+		n, err := pick("Vault pledges:", items, min(last, len(items)-1))
 		if back(err) {
 			return nil
 		}
@@ -176,12 +171,6 @@ func vaultBrowse(ctx context.Context, cmd *cli.Command, c *webtor.Client) error 
 			return err
 		}
 		last = n
-		if n == dlIndex {
-			if err := downloadsScreen(); err != nil && !back(err) {
-				return err
-			}
-			continue
-		}
 		if err := resourceMenu(ctx, cmd, c, v.Pledges[n].ResourceID); err != nil && !back(err) {
 			return err
 		}
