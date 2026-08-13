@@ -68,3 +68,44 @@ func TestClickRowMapping(t *testing.T) {
 		t.Errorf("scrolled clickRow(16) = %d, want 1", got)
 	}
 }
+
+func TestLexEventsMotionIsHoverNotClick(t *testing.T) {
+	// 35 = motion with no button (32|3), 32 = motion with the left button
+	// held (a drag) — neither may register as a click.
+	evs := lexEvents([]byte("\x1b[<35;9;4M\x1b[<32;9;5M"))
+	if len(evs) != 2 {
+		t.Fatalf("events = %d: %+v", len(evs), evs)
+	}
+	for i, ev := range evs {
+		if ev.kind != evHover {
+			t.Errorf("event %d kind = %d, want evHover", i, ev.kind)
+		}
+	}
+	if evs[0].y != 4 || evs[1].y != 5 {
+		t.Errorf("coordinates = %+v", evs)
+	}
+}
+
+func TestHoverRenderUnderlinesRowUnderMouse(t *testing.T) {
+	s := &tuiState{height: 15, hover: -1}
+	s.items = items("alpha", "beta", "gamma")
+	s.visible = []int{0, 1, 2}
+	s.drawn = 5
+	s.frameTop = 20 - s.drawn // header at 15, items at 16..18
+
+	// A motion over the second row marks it hovered and asks for a redraw.
+	if !s.setHover(17) {
+		t.Fatal("setHover reported no change")
+	}
+	if s.hover != 1 {
+		t.Fatalf("hover = %d, want 1", s.hover)
+	}
+	// The same row again changes nothing (no redraw churn on every motion).
+	if s.setHover(17) {
+		t.Error("repeated hover asked for a redraw")
+	}
+	// Leaving the list clears it.
+	if !s.setHover(19) || s.hover != -1 {
+		t.Errorf("hover after leaving = %d, want -1", s.hover)
+	}
+}

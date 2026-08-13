@@ -50,8 +50,9 @@ var errTUIUnavailable = errors.New("tui unavailable")
 // Mouse reporting: presses and wheel in SGR encoding (coordinates survive
 // wide terminals). Enabled only while a picker screen is on.
 const (
-	mouseOn  = "\x1b[?1000h\x1b[?1006h"
-	mouseOff = "\x1b[?1006l\x1b[?1000l"
+	// 1000: presses, 1003: motion (for hover), 1006: SGR encoding.
+	mouseOn  = "\x1b[?1000h\x1b[?1003h\x1b[?1006h"
+	mouseOff = "\x1b[?1006l\x1b[?1003l\x1b[?1000l"
 )
 
 // termEvent is one decoded input item: a control/printable byte run, a CSI
@@ -71,6 +72,7 @@ const (
 	evMouse
 	evWheel
 	evDSR
+	evHover // mouse motion without a press
 )
 
 // lexEvents splits an input chunk into events. A read can glue keystrokes,
@@ -112,6 +114,8 @@ func lexEvents(buf []byte) []termEvent {
 						if buf[j] == 'M' {
 							evs = append(evs, termEvent{kind: evWheel, up: b == 64})
 						}
+					case b&32 != 0: // motion (with or without a button)
+						evs = append(evs, termEvent{kind: evHover, x: x, y: y})
 					case b&3 == 0 && buf[j] == 'M': // left press
 						evs = append(evs, termEvent{kind: evMouse, x: x, y: y})
 					}
@@ -152,6 +156,18 @@ type tuiState struct {
 	width    int // terminal columns
 	drawn    int // lines drawn by the previous frame
 	frameTop int // terminal row of the frame's first line (0 = unknown)
+	hover    int // visible index under the mouse, -1 = none
+}
+
+// setHover updates the hovered row from a motion event; reports whether a
+// redraw is needed.
+func (s *tuiState) setHover(y int) bool {
+	vi := s.clickRow(y)
+	if vi == s.hover {
+		return false
+	}
+	s.hover = vi
+	return true
 }
 
 // moveCursor applies an arrow/page event.
@@ -277,6 +293,9 @@ func (s *tuiState) render(out *os.File) {
 		b.WriteString(suffix)
 		b.WriteString("\r\n")
 	}
+	if s.hover >= len(s.visible) {
+		s.hover = -1
+	}
 	header := s.title
 	if s.filter != "" {
 		header += "  filter: " + s.filter
@@ -297,9 +316,17 @@ func (s *tuiState) render(out *os.File) {
 		if it.Detail != "" {
 			row += "  (" + it.Detail + ")"
 		}
-		if vi == s.cursor {
+		// The link look: the row under the mouse is underlined; the selected
+		// row is inverted; the selected row under the mouse gets both, so
+		// the pointer stays visible even where it already sits.
+		switch {
+		case vi == s.cursor && vi == s.hover:
+			styled("\x1b[7m\x1b[4m", "▸ "+row, "\x1b[0m")
+		case vi == s.cursor:
 			styled("\x1b[7m", "▸ "+row, "\x1b[0m")
-		} else {
+		case vi == s.hover:
+			styled("\x1b[4m", "  "+row, "\x1b[0m")
+		default:
 			line("  %s", row)
 		}
 	}
@@ -345,7 +372,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 		return nil, errTUIUnavailable
 	}
 	s := &tuiState{items: items, multi: multi, title: title,
-		height: 15, checked: map[int]bool{}}
+		height: 15, checked: map[int]bool{}, hover: -1}
 	_, _ = out.WriteString(mouseOn)
 	restore := func() {
 		_, _ = out.WriteString(mouseOff)
@@ -393,6 +420,8 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 			switch ev.kind {
 			case evDSR:
 				s.frameTop = ev.row - s.drawn
+			case evHover:
+				_ = s.setHover(ev.y) // next render shows it
 			case evArrow:
 				s.moveCursor(ev.final)
 			case evWheel:

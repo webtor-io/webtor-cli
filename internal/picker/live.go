@@ -23,7 +23,7 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 		return promptPick(os.Stdin, os.Stderr, title, refresh(), -1)
 	}
 	polling := setPollRead(fd)
-	s := &tuiState{items: refresh(), title: title, height: 15, checked: map[int]bool{}}
+	s := &tuiState{items: refresh(), title: title, height: 15, checked: map[int]bool{}, hover: -1}
 	_, _ = out.WriteString(mouseOn)
 	defer func() {
 		_, _ = out.WriteString(mouseOff)
@@ -56,6 +56,8 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 			switch ev.kind {
 			case evDSR:
 				s.frameTop = ev.row - s.drawn
+			case evHover:
+				_ = s.setHover(ev.y)
 			case evArrow:
 				s.moveCursor(ev.final)
 			case evWheel:
