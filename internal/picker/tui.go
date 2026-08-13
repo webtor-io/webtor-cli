@@ -47,6 +47,93 @@ func extraHint() string {
 
 var errTUIUnavailable = errors.New("tui unavailable")
 
+// Mouse reporting: presses and wheel in SGR encoding (coordinates survive
+// wide terminals). Enabled only while a picker screen is on.
+const (
+	mouseOn  = "\x1b[?1000h\x1b[?1006h"
+	mouseOff = "\x1b[?1006l\x1b[?1000l"
+)
+
+// termEvent is one decoded input item: a control/printable byte run, a CSI
+// arrow, an SGR mouse press, a wheel step, or a cursor-position report.
+type termEvent struct {
+	kind  int // evBytes, evArrow, evMouse, evWheel, evDSR
+	bytes []byte
+	final byte // arrow letter or PgUp/PgDn digit
+	x, y  int  // mouse coordinates (1-based)
+	row   int  // DSR row
+	up    bool // wheel direction
+}
+
+const (
+	evBytes = iota
+	evArrow
+	evMouse
+	evWheel
+	evDSR
+)
+
+// lexEvents splits an input chunk into events. A read can glue keystrokes,
+// mouse packets and the DSR reply together, so everything is scanned.
+func lexEvents(buf []byte) []termEvent {
+	var evs []termEvent
+	i := 0
+	for i < len(buf) {
+		if buf[i] != 0x1b {
+			j := i
+			for j < len(buf) && buf[j] != 0x1b {
+				j++
+			}
+			evs = append(evs, termEvent{kind: evBytes, bytes: buf[i:j]})
+			i = j
+			continue
+		}
+		if i+1 >= len(buf) || buf[i+1] != '[' {
+			evs = append(evs, termEvent{kind: evBytes, bytes: []byte{0x1b}})
+			i++
+			continue
+		}
+		j := i + 2
+		for j < len(buf) && (buf[j] < 0x40 || buf[j] > 0x7e) {
+			j++
+		}
+		if j >= len(buf) {
+			evs = append(evs, termEvent{kind: evBytes, bytes: []byte{0x1b}})
+			break
+		}
+		params := string(buf[i+2 : j])
+		switch buf[j] {
+		case 'M', 'm':
+			if strings.HasPrefix(params, "<") {
+				var b, x, y int
+				if _, err := fmt.Sscanf(params, "<%d;%d;%d", &b, &x, &y); err == nil {
+					switch {
+					case b == 64 || b == 65:
+						if buf[j] == 'M' {
+							evs = append(evs, termEvent{kind: evWheel, up: b == 64})
+						}
+					case b&3 == 0 && buf[j] == 'M': // left press
+						evs = append(evs, termEvent{kind: evMouse, x: x, y: y})
+					}
+				}
+			}
+		case 'R':
+			var row, col int
+			if _, err := fmt.Sscanf(params, "%d;%d", &row, &col); err == nil {
+				evs = append(evs, termEvent{kind: evDSR, row: row})
+			}
+		case 'A', 'B', 'H', 'F':
+			evs = append(evs, termEvent{kind: evArrow, final: buf[j]})
+		case '~':
+			if params == "5" || params == "6" {
+				evs = append(evs, termEvent{kind: evArrow, final: params[0]})
+			}
+		}
+		i = j + 1
+	}
+	return evs
+}
+
 func tuiAvailable() bool {
 	return os.Getenv("WEBTOR_PLAIN_PICKER") == "" && os.Getenv("TERM") != "dumb" &&
 		term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
@@ -61,9 +148,49 @@ type tuiState struct {
 	checked map[int]bool // original indices (multi mode)
 	multi   bool
 	title   string
-	height  int // viewport rows
-	width   int // terminal columns
-	drawn   int // lines drawn by the previous frame
+	height   int // viewport rows
+	width    int // terminal columns
+	drawn    int // lines drawn by the previous frame
+	frameTop int // terminal row of the frame's first line (0 = unknown)
+}
+
+// moveCursor applies an arrow/page event.
+func (s *tuiState) moveCursor(final byte) {
+	switch final {
+	case 'A':
+		s.cursor--
+	case 'B':
+		s.cursor++
+	case 'H':
+		s.cursor = 0
+	case 'F':
+		s.cursor = len(s.visible) - 1
+	case '5':
+		s.cursor -= s.height
+	case '6':
+		s.cursor += s.height
+	}
+	if s.cursor > len(s.visible)-1 {
+		s.cursor = len(s.visible) - 1
+	}
+	if s.cursor < 0 {
+		s.cursor = 0
+	}
+	s.clamp()
+}
+
+// clickRow maps a terminal row to a visible index, or -1. Rows are 1-based;
+// the frame's first line is the header, items follow.
+func (s *tuiState) clickRow(y int) int {
+	if s.frameTop <= 0 {
+		return -1
+	}
+	vi := s.offset + (y - s.frameTop - 1)
+	end := min(s.offset+s.height, len(s.visible))
+	if y <= s.frameTop || vi < s.offset || vi >= end {
+		return -1
+	}
+	return vi
 }
 
 // fit trims s to the terminal width by display width (CJK counts double),
@@ -190,6 +317,9 @@ func (s *tuiState) render(out *os.File) {
 	styled("\x1b[2m", hint, "\x1b[0m")
 
 	s.drawn = 2 + max(end-s.offset, 1) // header + rows (or the empty note) + hint
+	// Ask where the cursor ended up — the reply (ESC[row;colR) arrives on
+	// stdin and pins the frame's absolute position for click mapping.
+	b.WriteString("\x1b[6n")
 	_, _ = out.WriteString(b.String())
 }
 
@@ -216,7 +346,9 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 	}
 	s := &tuiState{items: items, multi: multi, title: title,
 		height: 15, checked: map[int]bool{}}
+	_, _ = out.WriteString(mouseOn)
 	restore := func() {
+		_, _ = out.WriteString(mouseOff)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}
@@ -228,114 +360,117 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 		s.clamp()
 	}
 
-	buf := make([]byte, 64)
+	confirmAt := func(vi int) ([]int, error) {
+		if multi {
+			var picked []int
+			for _, oi := range s.visible {
+				if s.checked[oi] {
+					picked = append(picked, oi)
+				}
+			}
+			for oi := range s.checked {
+				if s.checked[oi] && !contains(picked, oi) {
+					picked = append(picked, oi)
+				}
+			}
+			if len(picked) == 0 {
+				picked = []int{s.visible[vi]}
+			}
+			sortInts(picked)
+			return picked, nil
+		}
+		return []int{s.visible[vi]}, nil
+	}
+
+	buf := make([]byte, 128)
 	for {
-		s.resize(fd) // survive terminal resizes between keystrokes
 		s.render(out)
 		n, err := in.Read(buf)
 		if err != nil || n == 0 {
 			return nil, ErrCancelled
 		}
-		key := buf[:n]
-		switch {
-		case key[0] == 0x03: // Ctrl-C
-			return nil, ErrCancelled
-		case key[0] == '\r' || key[0] == '\n':
-			if len(s.visible) == 0 {
-				continue
-			}
-			if multi {
-				var picked []int
-				for _, oi := range s.visible {
-					if s.checked[oi] {
-						picked = append(picked, oi)
-					}
-				}
-				// Also count marks hidden by the current filter.
-				for oi := range s.checked {
-					if s.checked[oi] && !contains(picked, oi) {
-						picked = append(picked, oi)
-					}
-				}
-				if len(picked) == 0 {
-					picked = []int{s.visible[s.cursor]}
-				}
-				sortInts(picked)
-				return picked, nil
-			}
-			return []int{s.visible[s.cursor]}, nil
-		case key[0] == '\t' && !multi:
-			return nil, ErrTab
-		case key[0] == '\t' && multi:
-			if len(s.visible) > 0 {
-				oi := s.visible[s.cursor]
-				s.checked[oi] = !s.checked[oi]
-				if s.cursor < len(s.visible)-1 {
-					s.cursor++
-				}
-				s.clamp()
-			}
-		case key[0] == 0x7f || key[0] == 0x08: // Backspace
-			if s.filter != "" {
-				_, size := utf8.DecodeLastRuneInString(s.filter)
-				s.filter = s.filter[:len(s.filter)-size]
-				s.refilter()
-			}
-		case key[0] == 0x1b:
-			if n == 1 { // lone Esc
-				if s.filter != "" {
-					s.filter = ""
-					s.refilter()
-					continue
-				}
-				return nil, ErrBack
-			}
-			if n >= 3 && key[1] == '[' {
-				switch key[2] {
-				case 'A':
-					s.cursor--
-				case 'B':
-					s.cursor++
-				case 'H':
-					s.cursor = 0
-				case 'F':
-					s.cursor = len(s.visible) - 1
-				case '5': // PgUp
-					s.cursor -= s.height
-				case '6': // PgDn
-					s.cursor += s.height
-				}
-				if s.cursor < 0 {
-					s.cursor = 0
-				}
-				if s.cursor > len(s.visible)-1 {
-					s.cursor = len(s.visible) - 1
-				}
-				s.clamp()
-			}
-		default:
-			txt := string(key)
-			if s.filter == "" && (txt == "j" || txt == "k") { // vi motion
-				if txt == "j" {
-					s.cursor++
+		for _, ev := range lexEvents(buf[:n]) {
+			switch ev.kind {
+			case evDSR:
+				s.frameTop = ev.row - s.drawn
+			case evArrow:
+				s.moveCursor(ev.final)
+			case evWheel:
+				if ev.up {
+					s.moveCursor('A')
 				} else {
-					s.cursor--
+					s.moveCursor('B')
 				}
-				if s.cursor < 0 {
-					s.cursor = 0
+			case evMouse:
+				if vi := s.clickRow(ev.y); vi >= 0 {
+					s.cursor = vi
+					s.clamp()
+					if multi {
+						oi := s.visible[vi]
+						s.checked[oi] = !s.checked[oi]
+					} else {
+						return confirmAt(vi)
+					}
 				}
-				if s.cursor > len(s.visible)-1 {
-					s.cursor = len(s.visible) - 1
+			case evBytes:
+				for bi := 0; bi < len(ev.bytes); bi++ {
+					c := ev.bytes[bi]
+					switch {
+					case c == 0x03: // Ctrl-C
+						return nil, ErrCancelled
+					case c == '\r' || c == '\n':
+						if len(s.visible) == 0 {
+							continue
+						}
+						return confirmAt(s.cursor)
+					case c == '\t' && !multi:
+						return nil, ErrTab
+					case c == '\t' && multi:
+						if len(s.visible) > 0 {
+							oi := s.visible[s.cursor]
+							s.checked[oi] = !s.checked[oi]
+							if s.cursor < len(s.visible)-1 {
+								s.cursor++
+							}
+							s.clamp()
+						}
+					case c == 0x7f || c == 0x08: // Backspace
+						if s.filter != "" {
+							_, size := utf8.DecodeLastRuneInString(s.filter)
+							s.filter = s.filter[:len(s.filter)-size]
+							s.refilter()
+						}
+					case c == 0x1b: // lone Esc from the lexer
+						if s.filter != "" {
+							s.filter = ""
+							s.refilter()
+							continue
+						}
+						return nil, ErrBack
+					case s.filter == "" && (c == 'j' || c == 'k'):
+						if c == 'j' {
+							s.moveCursor('B')
+						} else {
+							s.moveCursor('A')
+						}
+					default:
+						// Printable run: take the whole remaining slice as
+						// filter input (multi-byte runes arrive together).
+						txt := string(ev.bytes[bi:])
+						changed := false
+						for _, r := range txt {
+							if unicode.IsPrint(r) {
+								s.filter += string(r)
+								changed = true
+							}
+						}
+						if changed {
+							s.refilter()
+						}
+						bi = len(ev.bytes)
+					}
 				}
-				s.clamp()
-				continue
 			}
-			for _, r := range txt {
-				if unicode.IsPrint(r) {
-					s.filter += string(r)
-				}
-			}
-			s.refilter()
 		}
 	}
 }
@@ -377,7 +512,9 @@ func Show(title string, lines []string) error {
 		return rerr
 	}
 	s := &tuiState{title: title, height: 15}
+	_, _ = out.WriteString(mouseOn)
 	defer func() {
+		_, _ = out.WriteString(mouseOff)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}()

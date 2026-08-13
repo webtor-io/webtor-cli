@@ -104,9 +104,9 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `config init/show/use` | contexts |
 
 **Interactive mode** (terminal only — scripts keep the old behavior): the
-screens are arrow-key lists — ↑↓/jk move, typing filters live, Enter
-selects, Tab marks in multi-select, **Esc goes one screen back, Ctrl-C
-quits**. Bare `webtor` opens the top menu (library / vault / profile);
+screens are arrow-key lists — ↑↓/jk move, the mouse works too (click
+selects, wheel scrolls), typing filters live, Enter selects, Tab marks
+in multi-select, **Esc goes one screen back, Ctrl-C quits**. Bare `webtor` opens the top menu (library / vault / profile);
 `webtor <resource-id>` (or a magnet) opens the torrent's action menu —
 play, browse the file tree (Enter descends, Esc ascends; a torrent's
 single wrapper folder is skipped), download, library and vault actions in

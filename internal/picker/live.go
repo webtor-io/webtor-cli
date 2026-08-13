@@ -24,7 +24,9 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 	}
 	polling := setPollRead(fd)
 	s := &tuiState{items: refresh(), title: title, height: 15, checked: map[int]bool{}}
+	_, _ = out.WriteString(mouseOn)
 	defer func() {
+		_, _ = out.WriteString(mouseOff)
 		s.wipe(out)
 		_ = term.Restore(fd, oldState)
 	}()
@@ -50,48 +52,42 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 		if rerr != nil {
 			return 0, ErrCancelled
 		}
-		key := buf[:n]
-		switch {
-		case key[0] == 0x03:
-			return 0, ErrCancelled
-		case key[0] == '\r' || key[0] == '\n':
-			if len(s.visible) == 0 {
-				continue
-			}
-			return s.visible[s.cursor], nil
-		case key[0] == 0x1b:
-			if n == 1 {
-				return 0, ErrBack
-			}
-			if n >= 3 && key[1] == '[' {
-				switch key[2] {
-				case 'A':
-					s.cursor--
-				case 'B':
-					s.cursor++
+		for _, ev := range lexEvents(buf[:n]) {
+			switch ev.kind {
+			case evDSR:
+				s.frameTop = ev.row - s.drawn
+			case evArrow:
+				s.moveCursor(ev.final)
+			case evWheel:
+				if ev.up {
+					s.moveCursor('A')
+				} else {
+					s.moveCursor('B')
 				}
-				if s.cursor < 0 {
-					s.cursor = 0
+			case evMouse:
+				if vi := s.clickRow(ev.y); vi >= 0 {
+					return s.visible[vi], nil
 				}
-				if s.cursor > len(s.visible)-1 {
-					s.cursor = len(s.visible) - 1
+			case evBytes:
+				for _, c := range ev.bytes {
+					switch c {
+					case 0x03:
+						return 0, ErrCancelled
+					case '\r', '\n':
+						if len(s.visible) > 0 {
+							return s.visible[s.cursor], nil
+						}
+					case 0x1b:
+						return 0, ErrBack
+					case '\t':
+						return 0, ErrTab
+					case 'j':
+						s.moveCursor('B')
+					case 'k':
+						s.moveCursor('A')
+					}
 				}
-				s.clamp()
 			}
-		case key[0] == '\t':
-			return 0, ErrTab
-		case key[0] == 'j':
-			s.cursor++
-			if s.cursor > len(s.visible)-1 {
-				s.cursor = len(s.visible) - 1
-			}
-			s.clamp()
-		case key[0] == 'k':
-			s.cursor--
-			if s.cursor < 0 {
-				s.cursor = 0
-			}
-			s.clamp()
 		}
 	}
 }
