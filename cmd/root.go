@@ -46,6 +46,7 @@ func Root() *cli.Command {
 			vaultCmd(),
 			scanCmd(),
 			profileCmd(),
+			doctorCmd(),
 			configCmd(),
 		},
 	}

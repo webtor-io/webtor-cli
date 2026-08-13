@@ -14,6 +14,7 @@ import (
 
 	webtor "github.com/webtor-io/api-sdk-go"
 	"github.com/webtor-io/webtor-cli/internal/config"
+	"github.com/webtor-io/webtor-cli/internal/notify"
 	"github.com/webtor-io/webtor-cli/internal/picker"
 	"github.com/webtor-io/webtor-cli/internal/render"
 )
@@ -303,6 +304,7 @@ func (m *dlManager) run(c *webtor.Client, t *dlTask) {
 				default:
 					t.errMsg.Store(strings.TrimPrefix(err.Error(), "webtor: "))
 					t.status.Store(int32(dlFailed))
+					notifyTask(t)
 				}
 				m.persist()
 				return
@@ -310,6 +312,7 @@ func (m *dlManager) run(c *webtor.Client, t *dlTask) {
 		}
 		t.status.Store(int32(dlDone))
 		m.persist()
+		notifyTask(t)
 	}
 	if os.Getenv("WEBTOR_SYNC_DOWNLOADS") != "" {
 		body() // test hook: piped-answer scripts need deterministic completion
@@ -489,4 +492,20 @@ func startAndShow(c *webtor.Client, sp dlSpec) error {
 		}
 	}
 	return downloadsScreen()
+}
+
+// notifyTask posts a desktop notification for a finished task. A download
+// running in the background is exactly the case where the person is looking
+// somewhere else, so the machine says it out loud.
+func notifyTask(t *dlTask) {
+	if !notify.Enabled() {
+		return
+	}
+	switch t.st() {
+	case dlDone:
+		notify.Post("Download finished", t.spec.Label+" — "+render.Size(t.total))
+	case dlFailed:
+		msg, _ := t.errMsg.Load().(string)
+		notify.Post("Download failed", t.spec.Label+" — "+msg)
+	}
 }

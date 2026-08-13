@@ -225,14 +225,34 @@ func launchPlayer(player, url string) error {
 		return exec.Command(p, url).Start()
 	}
 	if runtime.GOOS == "darwin" {
-		app := map[string]string{"vlc": "VLC", "iina": "IINA"}[strings.ToLower(player)]
-		if app == "" {
-			app = player
-		}
+		app := macAppName(player)
 		if err := exec.Command("open", "-a", app, url).Run(); err != nil {
 			return fmt.Errorf("no %q app bundle: %w", app, exec.ErrNotFound)
 		}
 		return nil
 	}
 	return fmt.Errorf("%s: %w on PATH", player, exec.ErrNotFound)
+}
+
+// macAppName maps a player command to the .app bundle name macOS knows.
+func macAppName(player string) string {
+	if app := map[string]string{"vlc": "VLC", "iina": "IINA"}[strings.ToLower(player)]; app != "" {
+		return app
+	}
+	return player
+}
+
+// macApp reports the installed .app bundle for a player, or "".
+func macApp(player string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	name := macAppName(player)
+	for _, dir := range []string{"/Applications", os.Getenv("HOME") + "/Applications"} {
+		p := dir + "/" + name + ".app"
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			return p
+		}
+	}
+	return ""
 }

@@ -101,6 +101,7 @@ only read when `WEBTOR_BACKEND` is set, and never override file contexts.
 | `vault status/pledge/unpledge` | long-term storage; `pledge --wait` polls to completion; bare `webtor vault` on a terminal browses pledges interactively |
 | `scan [DIR]` | list local `.torrent` files like the library (default: the download folder); interactive pick adds to the store and opens the action menu |
 | `profile` | account profile |
+| `doctor` | check the setup: config, API reachability, key, speed sample, player, output folder (`--json`, `--no-speed`) |
 | `config init/show/use` | contexts |
 
 **Interactive mode** (terminal only — scripts keep the old behavior): the
@@ -123,7 +124,8 @@ downloads at a time — starting it again shows the running task instead
 of queueing a rival. While a download runs the terminal itself reports
 it: the tab/window title carries the percentage, and terminals that
 support the progress escape (Windows Terminal, WezTerm, Ghostty,
-ConEmu) draw a bar on the tab; a task opens its own pause / resume / abort screen. Paused
+ConEmu) draw a bar on the tab. A desktop notification announces each
+finished or failed download (`WEBTOR_NO_NOTIFY=1` turns them off); a task opens its own pause / resume / abort screen. Paused
 downloads persist across sessions (running ones are parked as paused on
 exit) and resume from the bytes on disk. `download -i` picks files from the list. Piped answers fall back to a numbered prompt (`b` = back,
 `q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,

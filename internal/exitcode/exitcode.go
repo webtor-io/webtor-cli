@@ -43,6 +43,11 @@ func Classify(err error) (int, string) {
 		// reaches here only from screens with no parent to return to.
 		return Err, ""
 	}
+	if err.Error() == "" {
+		// A command that already reported its own failure line by line
+		// (doctor) returns an empty error: exit non-zero, print nothing.
+		return Err, ""
+	}
 	var ue *UsageError
 	if errors.As(err, &ue) {
 		return Usage, ue.Msg
