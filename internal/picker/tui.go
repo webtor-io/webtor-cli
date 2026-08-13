@@ -251,6 +251,29 @@ func flushInput(fd int, in *os.File) {
 	}
 }
 
+// applyReportsFirst consumes cursor-position replies before anything else
+// in the same burst: a pointer event that travelled together with a fresh
+// position must be mapped with that position, not the previous frame's.
+func applyReportsFirst(evs []termEvent, s *tuiState) []termEvent {
+	rest := evs[:0:0]
+	for _, ev := range evs {
+		if ev.kind == evDSR {
+			s.frameTop = ev.row - s.drawn
+			s.pendingDSR--
+			continue
+		}
+		rest = append(rest, ev)
+	}
+	return rest
+}
+
+func markerFor(selected bool) string {
+	if selected {
+		return "▸ "
+	}
+	return "  "
+}
+
 // stashEvents keeps the printable parts of already-decoded events.
 func stashEvents(evs []termEvent) {
 	for _, ev := range evs {
@@ -417,16 +440,16 @@ func (s *tuiState) render(out *os.File) {
 		if it.Detail != "" {
 			row += "  (" + it.Detail + ")"
 		}
-		// The link look: the row under the mouse is underlined; the selected
-		// row is inverted; the selected row under the mouse gets both, so
-		// the pointer stays visible even where it already sits.
+		// The link look: the row under the mouse is underlined, the selected
+		// row is inverted. On the selected row the pointer wins and the
+		// inversion drops — with both applied it was impossible to tell
+		// whether the pointer was there at all. The ▸ marker stays, so the
+		// row still reads as the selected one.
 		switch {
-		case vi == s.cursor && vi == s.hover:
-			styled("\x1b[7m\x1b[4m", "▸ "+row, "\x1b[0m")
+		case vi == s.hover:
+			styled("\x1b[4m", markerFor(vi == s.cursor)+row, "\x1b[0m")
 		case vi == s.cursor:
 			styled("\x1b[7m", "▸ "+row, "\x1b[0m")
-		case vi == s.hover:
-			styled("\x1b[4m", "  "+row, "\x1b[0m")
 		default:
 			line("  %s", row)
 		}
@@ -446,9 +469,12 @@ func (s *tuiState) render(out *os.File) {
 
 	s.drawn = 2 + max(end-s.offset, 1) // header + rows (or the empty note) + hint
 	// Ask where the cursor ended up — the reply (ESC[row;colR) arrives on
-	// stdin and pins the frame's absolute position for click mapping. One
-	// query in flight at a time: the answer only moves when the frame does.
-	if s.pendingDSR == 0 {
+	// stdin and pins the frame's absolute position for click and hover
+	// mapping. Asked on every frame, because the terminal scrolls the frame
+	// upwards whenever it is drawn near the bottom and a stale position
+	// would map the pointer onto the wrong row. Bounded so a terminal that
+	// never answers cannot pile queries up.
+	if s.pendingDSR < 2 {
 		b.WriteString("\x1b[6n")
 		s.pendingDSR++
 	}
@@ -530,6 +556,7 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 		}
 		evs, rest := lexEventsCarry(data, n == len(buf))
 		carry = append(carry[:0], rest...)
+		evs = applyReportsFirst(evs, s)
 		for ei := 0; ei < len(evs); ei++ {
 			ev := evs[ei]
 			// leave hands back whatever the burst still holds: bytes typed
@@ -540,9 +567,6 @@ func tuiPick(title string, items []Item, def int, multi bool) ([]int, error) {
 				stashEvents(evs[ei+1:])
 			}
 			switch ev.kind {
-			case evDSR:
-				s.frameTop = ev.row - s.drawn
-				s.pendingDSR--
 			case evHover:
 				_ = s.setHover(ev.y) // next render shows it
 			case evArrow:

@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -172,5 +174,59 @@ func TestLoneEscIsNotCarriedOnShortRead(t *testing.T) {
 	evs, carry = lexEventsCarry([]byte{0x1b}, true)
 	if len(evs) != 0 || len(carry) != 1 {
 		t.Fatalf("boundary: events=%+v carry=%q", evs, carry)
+	}
+}
+
+// Rendering rules: the pointer wins over the selection, so hovering the
+// selected row shows the underline (never the inversion) — otherwise there
+// was no way to tell whether the pointer was on it.
+func TestRenderHoverWinsOverCursor(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "frame")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	s := &tuiState{height: 15, width: 80, hover: -1, title: "T:"}
+	s.items = items("alpha", "beta")
+	s.visible = []int{0, 1}
+	s.cursor = 1
+
+	frame := func() string {
+		if _, err := f.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Truncate(0); err != nil {
+			t.Fatal(err)
+		}
+		s.drawn = 0 // fresh frame, no rewind
+		s.render(f)
+		b, err := os.ReadFile(f.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	// No pointer: the selected row is inverted.
+	out := frame()
+	if !strings.Contains(out, "\x1b[7m▸ beta") {
+		t.Errorf("selected row not inverted: %q", out)
+	}
+	// Pointer on the selected row: underlined, not inverted, marker kept.
+	s.hover = 1
+	out = frame()
+	if !strings.Contains(out, "\x1b[4m▸ beta") {
+		t.Errorf("hovered selection not underlined: %q", out)
+	}
+	if strings.Contains(out, "\x1b[7m▸ beta") {
+		t.Errorf("hovered selection still inverted: %q", out)
+	}
+	// Pointer elsewhere: that row underlined without a marker, selection
+	// inverted again.
+	s.hover = 0
+	out = frame()
+	if !strings.Contains(out, "\x1b[4m  alpha") || !strings.Contains(out, "\x1b[7m▸ beta") {
+		t.Errorf("split styles wrong: %q", out)
 	}
 }

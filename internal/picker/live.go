@@ -61,11 +61,8 @@ func PickLive(title string, refresh func() []Item) (int, error) {
 		}
 		evs, rest := lexEventsCarry(data, n == len(buf))
 		carry = append(carry[:0], rest...)
-		for _, ev := range evs {
+		for _, ev := range applyReportsFirst(evs, s) {
 			switch ev.kind {
-			case evDSR:
-				s.frameTop = ev.row - s.drawn
-				s.pendingDSR--
 			case evHover:
 				_ = s.setHover(ev.y)
 			case evArrow:
