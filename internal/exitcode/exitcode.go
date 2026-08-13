@@ -38,7 +38,7 @@ func Classify(err error) (int, string) {
 	if err == nil {
 		return OK, ""
 	}
-	if errors.Is(err, picker.ErrCancelled) || errors.Is(err, picker.ErrBack) {
+	if errors.Is(err, picker.ErrCancelled) || errors.Is(err, picker.ErrBack) || errors.Is(err, picker.ErrTab) {
 		// Backing out of a picker is not an error worth narrating. ErrBack
 		// reaches here only from screens with no parent to return to.
 		return Err, ""

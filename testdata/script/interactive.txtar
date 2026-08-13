@@ -90,6 +90,13 @@ stdin scanpick.txt
 stderr 'Torrent files in scans:'
 stderr 'browse files'
 
+# Tab toggles: t opens downloads, t again returns to the menu (no exit)
+env WEBTOR_SYNC_DOWNLOADS=1
+stdin tabtoggle.txt
+webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
+stderr 'Downloads:'
+env WEBTOR_SYNC_DOWNLOADS=
+
 # unknown command still errors
 env WEBTOR_FORCE_INTERACTIVE=1
 ! webtor definitely-not-a-command
@@ -124,3 +131,7 @@ q
 4
 
 q
+-- tabtoggle.txt --
+t
+t
+b

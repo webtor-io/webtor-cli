@@ -345,7 +345,9 @@ func downloadsScreen() error {
 			}
 			return items
 		})
-		if back(err) {
+		if back(err) || errors.Is(err, picker.ErrTab) {
+			// Tab toggles: from a menu it opens this screen, from here it
+			// goes back to that menu.
 			return nil
 		}
 		if err != nil {
@@ -356,6 +358,9 @@ func downloadsScreen() error {
 			continue
 		}
 		if err := downloadTaskScreen(tasks[n]); err != nil && !back(err) {
+			if errors.Is(err, picker.ErrTab) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -386,11 +391,10 @@ func downloadTaskScreen(t *dlTask) error {
 			}
 		}
 		n, err := picker.Pick(t.spec.Label+" — "+t.detail()+":", items, 0)
-		if back(err) {
-			return nil
-		}
-		if errors.Is(err, picker.ErrTab) {
-			continue // already inside the downloads flow
+		if back(err) || errors.Is(err, picker.ErrTab) {
+			// Esc goes up one screen; Tab toggles all the way back to the
+			// menu the downloads flow was opened from.
+			return picker.ErrTab
 		}
 		if err != nil {
 			return err
