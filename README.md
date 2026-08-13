@@ -116,9 +116,11 @@ sort (recent / name, plus year and rating for movies/series) and
 watched-filter (all / unwatched / watched) toggles, mirroring the web-ui
 tabs. `play` asks which file when a
 torrent has several (Enter = biggest video) and confirms on its own
-screen; menu downloads run in the background — the hint line
-shows "tab: downloads (N active)" and Tab opens the live progress screen
-from anywhere; a task opens its own pause / resume / abort screen. Paused
+screen; menu downloads run in the background and open the
+download manager right away; the hint line shows "tab: downloads
+(N active)" and Tab reaches the manager from anywhere. One torrent
+downloads at a time — starting it again shows the running task instead
+of queueing a rival; a task opens its own pause / resume / abort screen. Paused
 downloads persist across sessions (running ones are parked as paused on
 exit) and resume from the bytes on disk. `download -i` picks files from the list. Piped answers fall back to a numbered prompt (`b` = back,
 `q` = quit); `WEBTOR_PLAIN_PICKER=1` forces it. Aliases: `dl` = download,

@@ -239,16 +239,39 @@ func (m *dlManager) remove(id int) {
 	m.persist()
 }
 
-// start launches a background download and returns immediately.
-func (m *dlManager) start(c *webtor.Client, sp dlSpec) {
+// activeFor returns the unfinished task of a torrent, if any. One torrent
+// is served by one task at a time: a second one would fight the first for
+// the same files and hammer the same swarm.
+func (m *dlManager) activeFor(rid string) *dlTask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tasks {
+		if t.spec.Rid != rid {
+			continue
+		}
+		if s := t.st(); s == dlRunning || s == dlPaused {
+			return t
+		}
+	}
+	return nil
+}
+
+// start launches a background download and returns immediately. When the
+// torrent already has an unfinished task, that one is returned instead and
+// started is false — nothing new is queued.
+func (m *dlManager) start(c *webtor.Client, sp dlSpec) (t *dlTask, started bool) {
 	m.ensureLoaded()
+	if existing := m.activeFor(sp.Rid); existing != nil {
+		return existing, false
+	}
 	m.mu.Lock()
 	m.seq++
-	t := &dlTask{id: m.seq, spec: sp, total: specTotal(sp)}
+	t = &dlTask{id: m.seq, spec: sp, total: specTotal(sp)}
 	m.tasks = append(m.tasks, t)
 	m.mu.Unlock()
 	m.persist()
 	m.run(c, t)
+	return t, true
 }
 
 // resume restarts a paused task; the on-disk bytes are picked up by the
@@ -446,4 +469,24 @@ func downloadTaskScreen(t *dlTask) error {
 			return nil
 		}
 	}
+}
+
+// startAndShow queues a download and opens the manager on it. A torrent
+// that is already downloading is explained rather than duplicated — the
+// manager is shown either way, so the state is visible instead of implied.
+func startAndShow(c *webtor.Client, sp dlSpec) error {
+	t, started := downloads.start(c, sp)
+	if !started {
+		what := "already downloading"
+		if t.st() == dlPaused {
+			what = "already queued, paused"
+		}
+		if err := picker.Show("Downloads:", []string{
+			t.spec.Label + " — " + what,
+			"one torrent downloads at a time; resume or abort it below",
+		}); err != nil {
+			return err
+		}
+	}
+	return downloadsScreen()
 }

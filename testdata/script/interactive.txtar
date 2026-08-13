@@ -23,8 +23,9 @@ stderr 'browse files'
 
 # browse: the wrapper directory Sintel/ is skipped, so the first screen
 # already lists the files; pick the second (poster.jpg), download it (a
-# background task; synchronous under the test hook), visit the downloads
-# screen, clear the finished task, quit
+# background task; synchronous under the test hook) — the manager opens by
+# itself, where the finished task is cleared. Then a second download of the
+# same torrent is refused while one is unfinished.
 env WEBTOR_SYNC_DOWNLOADS=1
 stdin browse.txt
 ! webtor 08ada5a7a6183aae1e09d831df6748d566095a10 --player true
@@ -130,7 +131,6 @@ q
 2
 2
 2
-t
 1
 1
 

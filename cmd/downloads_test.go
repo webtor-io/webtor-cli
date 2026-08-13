@@ -168,3 +168,68 @@ func TestAbortForgets(t *testing.T) {
 		t.Fatal("state file should be gone after abort")
 	}
 }
+
+// One torrent gets one task: a second start while the first is unfinished
+// returns the existing task instead of queueing a rival that would write
+// the same files and hammer the same swarm.
+func TestStartDeduplicatesPerTorrent(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dest := t.TempDir()
+	c := slowServer(t)
+	downloads = dlManager{}
+
+	spec := dlSpec{Rid: dlTestRid, Label: "whole torrent", Base: dest,
+		Files: []webtor.ListItem{{ID: "a", Name: "big.bin", Path: "/big.bin", Size: 200000}}}
+	first, started := downloads.start(c, spec)
+	if !started {
+		t.Fatal("first start was refused")
+	}
+	waitFor(t, "progress", func() bool { return first.done.Load() > 10000 })
+
+	// A different selection of the same torrent still maps to the one task.
+	again, started := downloads.start(c, dlSpec{Rid: dlTestRid, Label: "one file", Base: dest,
+		Files: []webtor.ListItem{{ID: "a", Name: "big.bin", Path: "/big.bin", Size: 200000}}})
+	if started {
+		t.Error("a second task was queued for the same torrent")
+	}
+	if again != first {
+		t.Error("the existing task was not returned")
+	}
+	if downloads.count() != 1 {
+		t.Fatalf("tasks = %d, want 1", downloads.count())
+	}
+
+	// Paused counts as unfinished — the partial file is still ours.
+	first.stop(true)
+	_, started = downloads.start(c, spec)
+	if started {
+		t.Error("a task was queued while a paused one existed")
+	}
+
+	// Once it is out of the way, a fresh start is allowed again.
+	downloads.remove(first.id)
+	third, started := downloads.start(c, spec)
+	if !started {
+		t.Fatal("start refused after the previous task was removed")
+	}
+	third.stop(false)
+}
+
+// A different torrent is unaffected by the rule.
+func TestStartAllowsOtherTorrents(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dest := t.TempDir()
+	c := slowServer(t)
+	downloads = dlManager{}
+
+	a, _ := downloads.start(c, dlSpec{Rid: dlTestRid, Label: "a", Base: dest,
+		Files: []webtor.ListItem{{ID: "a", Name: "a.bin", Path: "/a.bin", Size: 200000}}})
+	b, started := downloads.start(c, dlSpec{Rid: "1111111111111111111111111111111111111111",
+		Label: "b", Base: dest,
+		Files: []webtor.ListItem{{ID: "a", Name: "b.bin", Path: "/b.bin", Size: 200000}}})
+	if !started || downloads.count() != 2 {
+		t.Fatalf("second torrent refused: started=%v count=%d", started, downloads.count())
+	}
+	a.stop(false)
+	b.stop(false)
+}

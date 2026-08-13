@@ -195,9 +195,9 @@ func resourceMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid s
 		case "download all files":
 			var files []webtor.ListItem
 			if files, err = listFiles(ctx, c, rid, res.FilesCount); err == nil {
-				// Background: the menu returns immediately; Tab opens the
-				// downloads screen with live progress.
-				downloads.start(c, dlSpec{Rid: rid, Label: name, Layout: true,
+				// Runs in the background; the manager opens right away so
+				// the progress is where the eyes already are.
+				err = startAndShow(c, dlSpec{Rid: rid, Label: name, Layout: true,
 					Base: outputBase(cmd), Files: files})
 			}
 		case "add to library":
@@ -379,7 +379,7 @@ func fileMenu(ctx context.Context, cmd *cli.Command, c *webtor.Client, rid strin
 		case "play":
 			err = playItem(ctx, cmd, c, rid, item, nil)
 		case "download":
-			downloads.start(c, dlSpec{Rid: rid, Label: strings.TrimPrefix(item.Path, "/"),
+			err = startAndShow(c, dlSpec{Rid: rid, Label: strings.TrimPrefix(item.Path, "/"),
 				Base: outputBase(cmd), Files: []webtor.ListItem{*item}})
 		case "show download url":
 			u, uerr := downloadURLFor(ctx, c, rid, item, nil)
