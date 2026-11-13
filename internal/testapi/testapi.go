@@ -81,6 +81,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if rest, ok := strings.CutPrefix(p, "/resource/"+OwnedPrivateID); ok {
 		// The owned private torrent is Sintel under its own id.
 		id, p = OwnedPrivateID, "/resource/"+SintelID+rest
+	} else if rest, ok := strings.CutPrefix(p, "/resource/"+PrivateID+"/"); ok {
+		// Once added, PrivateID's files are Sintel's; its exact GET still refuses.
+		p = "/resource/" + SintelID + "/" + rest
 	}
 	switch {
 	case r.Method == "POST" && (p == "/resource/" || p == "/resource"):

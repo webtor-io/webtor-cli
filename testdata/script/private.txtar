@@ -17,13 +17,12 @@ stderr 'fake refusal private_tracker_refused'
 webtor-exit add verify.torrent
 stderr 'exit=7'
 
-# --json keeps the exit code and the API code (Review Focus 3)
+# --json keeps the exit code and the API code
 webtor-exit --json info 0123456789abcdef0123456789abcdef01234567
 stderr 'exit=8'
 stderr '"code": "private_torrent"'
 
-env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
-# shortcut with the user's own tr= goes to the check, not to exit 8 (Review Focus 1)
+# shortcut with the user's own tr= goes to the check (a POST), not to exit 8
 webtor-exit 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=http%3A%2F%2Ftracker.example%2Fannounce'
 stderr 'exit=0'
 stdout '0123456789abcdef0123456789abcdef01234567'
@@ -34,6 +33,11 @@ stdout '"verified": "accepted"'
 webtor-exit 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
 stderr 'exit=8'
 stderr 'webtor add file.torrent'
+# play with the user's own tr= also POSTs past the refusal, then plays
+[!windows] webtor-exit play 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=http%3A%2F%2Ftracker.example%2Fannounce' --player true
+[!windows] stderr 'exit=0'
+[!windows] stderr 'launched true: Sintel/Sintel.mkv'
+[!windows] ! stderr 'not stored yet'
 
 -- refused.torrent --
 private:private_tracker_refused:key

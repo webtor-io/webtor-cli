@@ -24,6 +24,7 @@ func TestNeedsAdd(t *testing.T) {
 		{"not found hash", h, nil, notFound, false},
 		{"enforce: refused, own tr", withTr, nil, noRecord, true},
 		{"enforce: refused, bare", bare, nil, noRecord, false},
+		{"other refusal, own tr", withTr, nil, &webtor.Error{HTTPStatus: 403, Code: webtor.CodeForbidden}, false},
 		{"observe: private 200, own tr", withTr, priv, nil, true},
 		{"public 200 with tr", withTr, pub, nil, false},
 		{"empty tr", bare + "&tr=", priv, nil, false},
