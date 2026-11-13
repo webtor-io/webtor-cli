@@ -22,6 +22,19 @@ webtor-exit --json info 0123456789abcdef0123456789abcdef01234567
 stderr 'exit=8'
 stderr '"code": "private_torrent"'
 
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+# shortcut with the user's own tr= goes to the check, not to exit 8 (Review Focus 1)
+webtor-exit 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=http%3A%2F%2Ftracker.example%2Fannounce'
+stderr 'exit=0'
+stdout '0123456789abcdef0123456789abcdef01234567'
+# observe mode: GET says private 200, the own tr= is still POSTed
+webtor --json 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234568&tr=http%3A%2F%2Ftracker.example%2Fannounce'
+stdout '"verified": "accepted"'
+# without tr= it stays the no_record refusal: no POST (that would answer "bare magnet")
+webtor-exit 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
+stderr 'exit=8'
+stderr 'webtor add file.torrent'
+
 -- refused.torrent --
 private:private_tracker_refused:key
 -- verify.torrent --

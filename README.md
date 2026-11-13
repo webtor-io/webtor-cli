@@ -135,7 +135,8 @@ Every command takes `--json` for machine output; errors then mirror the API's
 `{"error":{"code","message"}}` envelope on stderr. Exit codes: `2` usage,
 `3` auth, `4` payment required, `5` not found, `6` unsupported on this
 backend, `7` rate-limited/timeout, `8` private torrent this account cannot
-use.
+use. Private (BEP 27) torrents play only for the account that added them with
+its own tracker; their export links work for up to 24 h.
 
 Built on [`api-sdk-go`](https://github.com/webtor-io/api-sdk-go); the API
 reference lives at <https://api.webtor.io/v1/docs/index.html>.

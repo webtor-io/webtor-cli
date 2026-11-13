@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -75,7 +77,7 @@ func rootAction(ctx context.Context, cmd *cli.Command) error {
 		}
 		rid := extractResourceID(args[0])
 		res, err := c.Resource(ctx, rid)
-		if webtor.IsNotFound(err) && strings.HasPrefix(args[0], "magnet:") {
+		if needsAdd(args[0], res, err) {
 			res, err = c.AddResource(ctx, webtor.Magnet(args[0]))
 		}
 		if err != nil {
@@ -99,6 +101,30 @@ func rootAction(ctx context.Context, cmd *cli.Command) error {
 	default:
 		return cli.ShowAppHelp(cmd)
 	}
+}
+
+// needsAdd reports whether a magnet goes on to AddResource after the GET of
+// its infohash: the store does not know the torrent, or the torrent is
+// private and the magnet carries trackers of its own — only the POST takes
+// them to the tracker check, whether the GET refused (enforce) or answered
+// with the private descriptor (observe).
+func needsAdd(arg string, res *webtor.ResourceResponse, err error) bool {
+	if !strings.HasPrefix(arg, "magnet:") {
+		return false
+	}
+	if webtor.IsNotFound(err) {
+		return true
+	}
+	var ae *webtor.Error
+	return magnetHasTrackers(arg) &&
+		(errors.As(err, &ae) && ae.Code == webtor.CodePrivateTorrent || err == nil && res.Private)
+}
+
+// magnetHasTrackers reports whether the magnet has at least one non-empty
+// tr= parameter. A query that parses only in part still counts.
+func magnetHasTrackers(magnet string) bool {
+	q, _ := url.ParseQuery(strings.TrimPrefix(magnet, "magnet:?"))
+	return slices.ContainsFunc(q["tr"], func(tr string) bool { return tr != "" })
 }
 
 // Main runs the CLI and returns the process exit code.
