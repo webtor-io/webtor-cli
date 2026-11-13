@@ -1,0 +1,28 @@
+# Private torrents: the exit code, the server's text and the two hints end to end.
+env WEBTOR_BACKEND=webui WEBTOR_BASE_URL=$WEBUI_URL WEBTOR_API_KEY=$VALID_KEY
+
+# no_record: exit 8, the hint to add your own .torrent
+webtor-exit info 0123456789abcdef0123456789abcdef01234567
+stderr 'exit=8'
+stderr 'webtor add file.torrent'
+! stderr 'auth login'
+
+# an upload refusal: exit 8, the server's text as is, no hint
+webtor-exit add refused.torrent
+stderr 'exit=8'
+stderr 'fake refusal private_tracker_refused'
+! stderr 'webtor add'
+
+# a code that maps to another exit
+webtor-exit add verify.torrent
+stderr 'exit=7'
+
+# --json keeps the exit code and the API code (Review Focus 3)
+webtor-exit --json info 0123456789abcdef0123456789abcdef01234567
+stderr 'exit=8'
+stderr '"code": "private_torrent"'
+
+-- refused.torrent --
+private:private_tracker_refused:key
+-- verify.torrent --
+private:private_verify_unavailable
