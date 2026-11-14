@@ -21,6 +21,14 @@ const (
 	NotFound    = 5
 	Unsupported = 6 // capability missing on this backend
 	Throttled   = 7 // rate-limited or upstream timeout after retries
+	Private     = 8 // private torrent this account cannot use
+)
+
+// Hints appended to the server's text for the two private_torrent reasons the
+// user can act on from the CLI.
+const (
+	hintSignIn   = "run `webtor auth login`"
+	hintNoRecord = "add your .torrent: `webtor add file.torrent`"
 )
 
 // UsageError marks an invocation error (exit code 2).
@@ -58,6 +66,9 @@ func Classify(err error) (int, string) {
 	}
 	var ae *webtor.Error
 	if errors.As(err, &ae) {
+		if code, msg, ok := classifyPrivate(ae); ok {
+			return code, msg
+		}
 		switch ae.Code {
 		case webtor.CodeUnauthorized, webtor.CodeForbidden:
 			return Auth, err.Error() + "\nrun `webtor auth login` to (re)authenticate"
@@ -74,4 +85,34 @@ func Classify(err error) (int, string) {
 		return Throttled, err.Error()
 	}
 	return Err, err.Error()
+}
+
+// classifyPrivate maps a private torrent refusal onto its exit code; ok is
+// false for any other code. The message is the server's text as is, with a
+// hint only for private_torrent's sign_in and no_record reasons.
+func classifyPrivate(ae *webtor.Error) (exit int, msg string, ok bool) {
+	msg = ae.Message
+	if msg == "" {
+		msg = ae.Error()
+	}
+	switch ae.Code {
+	case webtor.CodePrivateTorrent:
+		switch ae.Reason {
+		case webtor.ReasonSignIn:
+			return Auth, msg + " — " + hintSignIn, true
+		case webtor.ReasonNoRecord:
+			return Private, msg + " — " + hintNoRecord, true
+		}
+		return Private, msg, true
+	case webtor.CodePrivateNeedsAccount:
+		return Auth, msg, true
+	case webtor.CodePrivateNoTracker, webtor.CodePrivateTooManyTrackers, webtor.CodePrivateMagnet,
+		webtor.CodePrivateTrackerRefused, webtor.CodePrivateTorrentFile:
+		return Private, msg, true
+	case webtor.CodePrivateVerifyUnavailable:
+		return Throttled, msg, true
+	case webtor.CodePrivateUnavailable:
+		return Unsupported, msg, true
+	}
+	return 0, "", false
 }

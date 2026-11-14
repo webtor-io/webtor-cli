@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -14,9 +15,16 @@ import (
 
 // TestMain registers the "webtor" testscript command: scripts run the real
 // CLI (in a re-exec of the test binary) against an in-process fake API.
+// "webtor-exit" runs the same CLI, prints its exit code to stderr as
+// exit=<code> and exits 0: testscript's ! only asserts a non-zero exit.
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
 		"webtor": func() { os.Exit(cmd.Main(context.Background(), os.Args)) },
+		"webtor-exit": func() {
+			code := cmd.Main(context.Background(), os.Args)
+			_, _ = fmt.Fprintf(os.Stderr, "exit=%d\n", code)
+			os.Exit(0)
+		},
 	})
 }
 

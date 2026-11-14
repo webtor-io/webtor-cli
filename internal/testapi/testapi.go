@@ -1,6 +1,6 @@
 // Package testapi is an in-process fake of the webtor API used by the CLI's
 // testscript suite. One handler serves both error dialects: Mode "webui"
-// answers with the {"error":{code,message}} envelope, requires a Bearer key
+// answers with the {"error":{code,message,reason}} envelope, requires a Bearer key
 // and offers the account surface incl. the device flow; Mode "restapi"
 // answers with rest-api's bare-string errors and only the resource surface.
 package testapi
@@ -8,14 +8,22 @@ package testapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 )
 
 const (
-	SintelID  = "08ada5a7a6183aae1e09d831df6748d566095a10"
-	ValidKey  = "99999999-8888-7777-6666-555555555555"
+	SintelID = "08ada5a7a6183aae1e09d831df6748d566095a10"
+	// PrivateID is a private torrent this account has no record of: GET
+	// /resource/<PrivateID> refuses with private_torrent, reason no_record.
+	PrivateID = "0123456789abcdef0123456789abcdef01234567"
+	// OwnedPrivateID is a private torrent this account added: it answers
+	// like SintelID, with "private":true on the resource.
+	OwnedPrivateID = "0123456789abcdef0123456789abcdef01234568"
+	ValidKey       = "99999999-8888-7777-6666-555555555555"
 	// FileBytes is the /dl payload. Newline-terminated lines so testscript
 	// txtar files (which always end with a newline) can hold exact prefixes
 	// of it for resume tests.
@@ -39,9 +47,19 @@ func New(mode string) *Server {
 }
 
 func (s *Server) fail(w http.ResponseWriter, status int, code, msg string) {
+	s.failReason(w, status, code, "", msg)
+}
+
+// failReason is fail with a reason refining the code; the web-ui envelope
+// leaves an empty reason out.
+func (s *Server) failReason(w http.ResponseWriter, status int, code, reason, msg string) {
 	w.WriteHeader(status)
 	if s.Mode == "webui" {
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": msg}})
+		e := map[string]string{"code": code, "message": msg}
+		if reason != "" {
+			e["reason"] = reason
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": e})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -59,11 +77,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	id := SintelID
+	if rest, ok := strings.CutPrefix(p, "/resource/"+OwnedPrivateID); ok {
+		// The owned private torrent is Sintel under its own id.
+		id, p = OwnedPrivateID, "/resource/"+SintelID+rest
+	} else if rest, ok := strings.CutPrefix(p, "/resource/"+PrivateID+"/"); ok {
+		// Once added, PrivateID's files are Sintel's; its exact GET still refuses.
+		p = "/resource/" + SintelID + "/" + rest
+	}
 	switch {
 	case r.Method == "POST" && (p == "/resource/" || p == "/resource"):
 		s.addResource(w, r)
+	case r.Method == "GET" && p == "/resource/"+PrivateID:
+		s.failReason(w, 403, "private_torrent", "no_record", "fake refusal private_torrent")
 	case r.Method == "GET" && p == "/resource/"+SintelID:
-		s.writeResource(w)
+		extra := ""
+		if id == OwnedPrivateID {
+			extra = `,"private":true`
+		}
+		s.writeResource(w, id, "Sintel", extra)
 	case r.Method == "GET" && p == "/resource/"+SintelID+"/list":
 		s.list(w, r)
 	case r.Method == "GET" && strings.HasPrefix(p, "/resource/"+SintelID+"/export/"):
@@ -77,7 +109,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case s.Mode == "webui" && p == "/profile":
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"user_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "email": "user@example.com",
-			"tier": map[string]any{"id": 1, "name": "Pro"},
+			"tier":     map[string]any{"id": 1, "name": "Pro"},
 			"settings": map[string]any{"show_adult": false},
 			"scopes":   []string{"api:read", "api:write"},
 		})
@@ -86,18 +118,42 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) writeResource(w http.ResponseWriter) {
-	_, _ = w.Write([]byte(`{"id":"` + SintelID + `","name":"Sintel","magnet_uri":"magnet:?xt=urn:btih:` + SintelID + `","multi_file":true,"size":734003200,"files_count":2}`))
+// writeResource writes Sintel's descriptor under id and name; extra is
+// spliced into the object as more fields.
+func (s *Server) writeResource(w http.ResponseWriter, id, name, extra string) {
+	_, _ = w.Write([]byte(`{"id":"` + id + `","name":"` + name + `","magnet_uri":"magnet:?xt=urn:btih:` + id + `","multi_file":true,"size":734003200,"files_count":2` + extra + `}`))
 }
 
+// addResource stores anything as Sintel, except two kinds of body: a
+// "private:<code>[:<reason>]" body is refused with that code and reason, and
+// a magnet of PrivateID or OwnedPrivateID needs its own tr= to be accepted.
 func (s *Server) addResource(w http.ResponseWriter, r *http.Request) {
-	b := make([]byte, 64)
-	n, _ := r.Body.Read(b)
-	if n == 0 {
+	b, _ := io.ReadAll(r.Body)
+	if len(b) == 0 {
 		s.fail(w, 400, "bad_request", "empty body")
 		return
 	}
-	s.writeResource(w)
+	body := strings.TrimSpace(string(b))
+	if spec, ok := strings.CutPrefix(body, "private:"); ok {
+		code, reason, _ := strings.Cut(spec, ":")
+		status := 422
+		if code == "private_verify_unavailable" {
+			w.Header().Set("Retry-After", "5")
+			status = 503
+		}
+		s.failReason(w, status, code, reason, "fake refusal "+code)
+		return
+	}
+	q, _ := url.ParseQuery(strings.TrimPrefix(body, "magnet:?"))
+	if id := strings.TrimPrefix(q.Get("xt"), "urn:btih:"); id == PrivateID || id == OwnedPrivateID {
+		if q.Get("tr") == "" {
+			s.failReason(w, 422, "private_magnet", "", "fake refusal private_magnet")
+			return
+		}
+		s.writeResource(w, id, "Private", `,"private":true,"verified":"accepted"`)
+		return
+	}
+	s.writeResource(w, SintelID, "Sintel", "")
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {

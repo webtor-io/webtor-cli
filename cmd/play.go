@@ -45,8 +45,8 @@ func playCmd() *cli.Command {
 			}
 
 			res, err := c.Resource(ctx, rid)
-			if webtor.IsNotFound(err) && strings.HasPrefix(arg, "magnet:") {
-				if !cmd.Bool("quiet") && !cmd.Bool("json") {
+			if needsAdd(arg, res, err) {
+				if webtor.IsNotFound(err) && !cmd.Bool("quiet") && !cmd.Bool("json") {
 					_, _ = fmt.Fprintln(os.Stderr, "not stored yet — adding the magnet first (a cold one can take a few minutes)…")
 				}
 				res, err = c.AddResource(ctx, webtor.Magnet(arg))
